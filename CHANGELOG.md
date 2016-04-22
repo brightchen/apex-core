@@ -1,6 +1,127 @@
 Apex Changelog
 ========================================================================================================================
 
+Version 3.3.0-incubating - 2016-02-08
+------------------------------------------------------------------------------------------------------------------------
+
+### Sub-task
+* [APEXCORE-104] - Expand Module DAG
+* [APEXCORE-105] - Support injecting properties through xml file on modules.
+* [APEXCORE-144] - Provide REST api for listing information about module.
+* [APEXCORE-151] - Provide code style templates for major IDEs (Eclipse, IntelliJ and NetBeans)
+* [APEXCORE-182] - Add Apache copyright to IntelliJ
+* [APEXCORE-194] - Add support for ProxyPorts in Modules
+* [APEXCORE-226] - Strictly enforce wrapping indentation in checkstyle
+* [APEXCORE-227] - Enforce left brace placement for anonymous class on the next line
+* [APEXCORE-230] - Limit line lengths to be 120
+* [APEXCORE-239] - Upgrade checkstyle to 6.12 from 6.11.2
+* [APEXCORE-248] - Increase wrapping indentation from 2 to 4.
+* [APEXCORE-249] - Enforce class, method, constructor annotations on a separate line
+* [APEXCORE-250] - Exclude DtCli from System.out checks
+* [APEXCORE-267] - Fix existing checkstyle violations in api
+* [APEXCORE-270] - Enforce checkstyle validations on test classes
+* [APEXCORE-272] - Attributes added to operator inside Module is not preserved.
+* [APEXCORE-273] - Fix existing checkstyle violations in bufferserver module
+* [APEXCORE-306] - Recovery checkpoint handing in iteration loops
+
+### Bug
+* [APEXCORE-58] - endWindow is being called even when the operator is being undeployed
+* [APEXCORE-83] - beginWindow not called on recovery
+* [APEXCORE-193] - apex-app-archetype has extraneous entry that generates a warning when running it
+* [APEXCORE-204] - Update checkstyle and codestyle to be the same
+* [APEXCORE-211] - Brace placement after static blocks in checkstyle configuration
+* [APEXCORE-263] - Checkpoint can be performed twice for same window
+* [APEXCORE-274] - removeTerminatedPartition fails for Unifier operator
+* [APEXCORE-275] - Two threads can try to reconnect to websocket server upon disconnection
+* [APEXCORE-278] - GenericNodeTest clutters test logs with unnecessary statement
+* [APEXCORE-296] - Memory leak in operator stats processing
+* [APEXCORE-300] - Fix checkstyle regular expression
+* [APEXCORE-303] - Launch properties not evaluated
+
+### Improvement
+* [APEXCORE-40] - Semver dependencies should be in Maven Central
+* [APEXCORE-162] - Enhance StramTestSupport.TestMeta API
+* [APEXCORE-181] - Expose methods in StramWSFilterInitializer to get the RM webapp address
+* [APEXCORE-188] - Make type graph lazy load
+* [APEXCORE-199] - CLI should check for version compatibility when launching app package
+* [APEXCORE-228] - Add maven 3.0.5 as prerequisites to the Apex parent pom
+* [APEXCORE-229] - Upgrade checkstyle maven plugin (2.17) and checkstyle dependency (6.11.2)
+* [APEXCORE-291] - Provide a way for an operator to specify its metric aggregator instance
+* [APEXCORE-305] - Enable checkstyle violations logging to console during maven build
+
+### New Feature
+* [APEXCORE-3] - Ability for an operator to populate DAG at launch time
+* [APEXCORE-60] - Iterative processing support
+* [APEXCORE-78] - Pre-Checkpoint Operator Callback
+* [APEXCORE-276] - Make App Data Push transport pluggable and configurable
+* [APEXCORE-283] - Operator checkpointing in distributed in-memory store
+* [APEXCORE-288] - Add group id information to apex app package
+
+### Task
+* [APEXCORE-24] - Takes out usage of Rhino as it is GPL 2.0
+* [APEXCORE-186] - Enable license check in Travis CI
+* [APEXCORE-253] - Apex archetype includes dependencies which do not belong to org.apache.apex
+* [APEXCORE-298] - Reduce the severity of  line length check
+* [APEXCORE-301] - Add "io" as a separate import to checkstyle rules
+* [APEXCORE-302] - Update NOTICE copyright year
+* [APEXCORE-308] - Implement findbugs plugin reporting
+* [APEXCORE-317] - Run performance benchmark for the Apex Core 3.3.0 release
+
+Version 3.2.0-incubating - 2015-10-23
+------------------------------------------------------------------------------------------------------------------------
+
+### Bug
+* [APEX-56] - Controlled plan modification on operator shutdown
+* [APEX-88] - Stray directories under working directory when running tests using StramLocalCluster
+* [APEX-89] - Javascript error when launching app on CDH 5.2 (hadoop 2.5.0)
+* [APEX-93] - Persist operators need a re-deploy after a sink being persisted is dynamically partitioned
+* [APEX-96] - AsyncFSStorageAgent loses synccheckpoint flag value during serialization/deserialization
+* [APEX-97] - syncCheckpoint property on AsyncFSStorageAgent not working
+* [APEX-98] - WindowGenerator.getWindowMillis loses precisions
+* [APEX-100] - StreamingContainerManagerTest.testAppDataPush uses hardcoded port
+* [APEX-101] - Negative Memory reported for Application Master
+* [APEX-102] - AppDataPushAgent Not Adding timeBuckets and dimensionsAggregators
+* [APEX-111] - dtcli: show-logical-plan with app package does not list the applications in the app package
+* [APEX-112] - Property change on logical operator converts from null to "null"(string)
+* [APEX-113] - Application Master not setting correct temp location
+* [APEX-114] - Stateful Stream Codec Exception
+* [APEX-117] - When Using Double Max Aggregator Data Stops Being Pushed By AppDataPushAgent
+* [APEX-118] - Sometimes the collection of metric values passed to an AutoMetric aggregator is empty
+* [APEX-120] - AsyncFSStorageAgentTest unit tests fail
+* [APEX-121] - Making sure that state is transferred to client for Statefull Codec
+* [APEX-126] - handleIdleTime Called Outside Of The Space Between beginWindow and endWindow
+* [APEX-149] - In secure mode non-HA setup STRAM web service calls are failing
+* [APEX-159] - StramMiniClusterTest.testOperatorFailureRecovery succeeds with unexpected error condition
+* [APEX-184] - When There Are 8 Or More Subscribers Buffer Server Can Become Blocked
+* [APEX-198] - Unit tests created remnant directories outside of target directory
+* [APEX-212] - Null pointer exception after all physical operators are removed.
+
+### Task
+* [APEX-16] - Configure Checkstyle plugin
+* [APEX-124] - Set the default temp location in pom
+
+### Improvement
+* [APEX-22] - Ability to re-declare ports 
+* [APEX-68] - Buffer server should use a separate thread to spool blocks to disk
+* [APEX-115] - Use containers set temp location
+
+
+
+Version 3.1.0
+------------------------------------------------------------------------------------------------------------------------
+
+### Bug
+* [APEX-12] - Fix Base Operator To Not Show Name Property In App Builder
+* [APEX-35] - Test exceptions due to missing directory in saveMetaInfo
+* [APEX-36] - FSStorageAgent to account for HDFS lease when writing checkpoint files
+* [APEX-37] - Container and operator json line file in StreamingContainerManager should not be appended from previous app attempt 
+* [APEX-43] - SchemaSupport: TUPLE_CLASS attribute should use Class2String StringCodec
+* [APEX-56] - Controlled plan modification on operator shutdown 
+
+### Improvement
+* [APEX-13] - Unblock operator thread from checkpoint writes
+
+
 Version 3.0.0
 ------------------------------------------------------------------------------------------------------------------------
 

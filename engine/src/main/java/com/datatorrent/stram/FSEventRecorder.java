@@ -1,17 +1,20 @@
 /**
- * Copyright (C) 2015 DataTorrent, Inc.
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *         http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package com.datatorrent.stram;
 
@@ -19,24 +22,27 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.URI;
 import java.util.Map;
-import java.util.concurrent.*;
-import net.engio.mbassy.listener.Handler;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeoutException;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.commons.beanutils.BeanUtils;
 
-import com.datatorrent.common.codec.JsonStreamCodec;
+import com.google.common.base.Throwables;
 
 import com.datatorrent.api.StreamCodec;
-
-import com.datatorrent.netlet.util.DTThrowable;
+import com.datatorrent.common.codec.JsonStreamCodec;
 import com.datatorrent.netlet.util.Slice;
 import com.datatorrent.stram.api.StramEvent;
 import com.datatorrent.stram.client.EventsAgent;
 import com.datatorrent.stram.util.FSPartFileCollection;
 import com.datatorrent.stram.util.SharedPubSubWebSocketClient;
+
+import net.engio.mbassy.listener.Handler;
 
 /**
  * <p>FSEventRecorder class.</p>
@@ -46,7 +52,7 @@ import com.datatorrent.stram.util.SharedPubSubWebSocketClient;
 public class FSEventRecorder implements EventRecorder
 {
   public static final String VERSION = "1.0";
-  private final BlockingQueue<StramEvent> queue = new LinkedBlockingQueue<StramEvent>();
+  private final BlockingQueue<StramEvent> queue = new LinkedBlockingQueue<>();
   private static final Logger LOG = LoggerFactory.getLogger(FSEventRecorder.class);
   private FSPartFileCollection storage;
   private String basePath = ".";
@@ -73,11 +79,9 @@ public class FSEventRecorder implements EventRecorder
               wsClient.publish(topic, storage.getLatestIndexLine());
             }
           }
-        }
-        catch (InterruptedException ex) {
+        } catch (InterruptedException ex) {
           return;
-        }
-        catch (Exception ex) {
+        } catch (Exception ex) {
           LOG.error("Caught Exception", ex);
         }
       }
@@ -104,7 +108,7 @@ public class FSEventRecorder implements EventRecorder
   public void setup()
   {
     try {
-      streamCodec = new JsonStreamCodec<Object>();
+      streamCodec = new JsonStreamCodec<>();
       storage = new FSPartFileCollection();
       storage.setBasePath(basePath);
       storage.setup();
@@ -113,25 +117,14 @@ public class FSEventRecorder implements EventRecorder
       if (wsClient != null) {
         try {
           setupWsClient();
-        }
-        catch (ExecutionException ex) {
-          LOG.error("Cannot connect to gateway at {}", pubSubUrl);
-        }
-        catch (IOException ex) {
-          LOG.error("Cannot connect to gateway at {}", pubSubUrl);
-        }
-        catch (InterruptedException ex) {
-          LOG.error("Cannot connect to gateway at {}", pubSubUrl);
-        }
-        catch (TimeoutException ex) {
+        } catch (ExecutionException | IOException | InterruptedException | TimeoutException ex) {
           LOG.error("Cannot connect to gateway at {}", pubSubUrl);
         }
       }
 
       eventRecorderThread.start();
-    }
-    catch (Exception ex) {
-      DTThrowable.rethrow(ex);
+    } catch (Exception ex) {
+      throw Throwables.propagate(ex);
     }
   }
 

@@ -1,23 +1,30 @@
 /**
- * Copyright (C) 2015 DataTorrent, Inc.
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *         http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package com.datatorrent.stram.engine;
 
 import java.io.File;
 import java.io.Serializable;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -29,7 +36,6 @@ import com.datatorrent.api.DAG;
 import com.datatorrent.api.Stats.OperatorStats;
 import com.datatorrent.api.Stats.OperatorStats.PortStats;
 import com.datatorrent.api.StatsListener;
-
 import com.datatorrent.common.util.AsyncFSStorageAgent;
 import com.datatorrent.common.util.BaseOperator;
 import com.datatorrent.stram.StramLocalCluster;
@@ -69,8 +75,7 @@ public class StatsTest
         if (!shutdown) {
           super.emitTuples();
         }
-      }
-      catch (ShutdownException ex) {
+      } catch (ShutdownException ex) {
         shutdown = true;
       }
     }
@@ -174,7 +179,7 @@ public class StatsTest
     int tupleCount = 10;
     LogicalPlan dag = new LogicalPlan();
     String workingDir = new File("target").getAbsolutePath();
-    dag.setAttribute(OperatorContext.STORAGE_AGENT, new AsyncFSStorageAgent(workingDir + "/localPath", workingDir, null));
+    dag.setAttribute(OperatorContext.STORAGE_AGENT, new AsyncFSStorageAgent(workingDir, null));
     TestOperator testOper = dag.addOperator("TestOperator", TestOperator.class);
     TestInputStatsListener testInputStatsListener = new TestInputStatsListener();
     dag.setAttribute(testOper, OperatorContext.STATS_LISTENERS, Arrays.asList(new StatsListener[]{testInputStatsListener}));
@@ -219,8 +224,7 @@ public class StatsTest
 
       Assert.assertEquals("Tuple Count processed", tupleCount, inputPortTupleCount);
       Assert.assertTrue("Buffer server bytes", outputPortBufferServerBytes > 0);
-    }
-    finally {
+    } finally {
       lc.shutdown();
     }
   }
@@ -230,7 +234,7 @@ public class StatsTest
   {
     LogicalPlan dag = new LogicalPlan();
     String workingDir = new File("target/baseTestForQueueSize").getAbsolutePath();
-    dag.setAttribute(Context.OperatorContext.STORAGE_AGENT, new AsyncFSStorageAgent(workingDir + "/localPath", workingDir, null));
+    dag.setAttribute(Context.OperatorContext.STORAGE_AGENT, new AsyncFSStorageAgent(workingDir, null));
     dag.getAttributes().put(LogicalPlan.STREAMING_WINDOW_SIZE_MILLIS, 200);
     TestOperator testOper = dag.addOperator("TestOperator", TestOperator.class);
     testOper.setMaxTuples(maxTuples);
@@ -256,8 +260,7 @@ public class StatsTest
         Thread.sleep(300);
         LOG.debug("Waiting for stats");
       }
-    }
-    else {
+    } else {
       while (collector.collectorOperatorStats.isEmpty() && (StramTestSupport.DEFAULT_TIMEOUT_MILLIS > System.currentTimeMillis() - startTms)) {
         Thread.sleep(300);
         LOG.debug("Waiting for stats");
@@ -265,8 +268,7 @@ public class StatsTest
     }
     if (statsListener != null) {
       statsListener.validateStats();
-    }
-    else {
+    } else {
       collector.validateStats();
     }
     lc.shutdown();

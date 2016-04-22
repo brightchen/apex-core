@@ -1,17 +1,20 @@
 /**
- * Copyright (C) 2015 DataTorrent, Inc.
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *         http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package com.datatorrent.bufferserver.internal;
 
@@ -39,12 +42,6 @@ public class FastDataList extends DataList
     super(identifier, blocksize, numberOfCacheBlocks);
   }
 
-  public FastDataList(String identifier, int blocksize, int numberOfCacheBlocks, int refCount)
-  {
-    super(identifier, blocksize, numberOfCacheBlocks, refCount);
-  }
-
-
   long item;
 
   @Override
@@ -57,8 +54,7 @@ public class FastDataList extends DataList
           size = last.data[processingOffset];
           size |= (last.data[processingOffset + 1] << 8);
 //          logger.debug("read item = {} of size = {} at offset = {}", item++, size, processingOffset);
-        }
-        else {
+        } else {
           if (writeOffset == last.data.length) {
             processingOffset = 0;
             size = 0;
@@ -76,8 +72,7 @@ public class FastDataList extends DataList
             if (last.starting_window == -1) {
               last.starting_window = baseSeconds | btw.getWindowId();
               last.ending_window = last.starting_window;
-            }
-            else {
+            } else {
               last.ending_window = baseSeconds | btw.getWindowId();
             }
             break;
@@ -86,37 +81,29 @@ public class FastDataList extends DataList
             Tuple rwt = Tuple.getTuple(last.data, processingOffset, size);
             baseSeconds = (long)rwt.getBaseSeconds() << 32;
             break;
+
+          default:
+            break;
         }
         processingOffset += size;
         size = 0;
-      }
-      else {
+      } else {
         if (writeOffset == last.data.length) {
           processingOffset = 0;
           size = 0;
         }
         break;
       }
-    }
-    while (true);
+    } while (true);
 
     last.writingOffset = writeOffset;
 
-    autoflushExecutor.submit(new Runnable()
-    {
-      @Override
-      public void run()
-      {
-        for (DataListener dl : all_listeners) {
-          dl.addedData();
-        }
-      }
+    notifyListeners();
 
-    });
   }
 
   @Override
-  public FastDataListIterator getIterator(Block block)
+  protected FastDataListIterator getIterator(Block block)
   {
     return new FastDataListIterator(block);
   }
@@ -188,59 +175,37 @@ public class FastDataList extends DataList
     }
 
     @Override
-    public synchronized boolean hasNext()
+    public boolean hasNext()
     {
       while (size == 0) {
         if (da.writingOffset - readOffset >= 2) {
           size = buffer[readOffset];
           size |= (buffer[readOffset + 1] << 8);
-        }
-        else {
-          if (da.writingOffset == buffer.length) {
-            if (da.next == null) {
-              return false;
-            }
-
-            da.release(false);
-            da.next.acquire(true);
-            da = da.next;
-            size = 0;
-            buffer = da.data;
-            readOffset = da.readingOffset;
-          }
-          else {
+        } else {
+          if (da.writingOffset == buffer.length && switchToNextBlock()) {
+            continue;
+          } else {
             return false;
           }
         }
       }
 
-      while (true) {
-        if (readOffset + size + 2 <= da.writingOffset) {
-          current = new SerializedData(buffer, readOffset, size + 2);
-          current.dataOffset = readOffset + 2;
-          return true;
-        }
-        else {
-          if (da.writingOffset == buffer.length) {
-            if (da.next == null) {
-              return false;
-            }
-            else {
-              da.release(false);
-              da.next.acquire(true);
-              da = da.next;
-              size = 0;
-              readOffset = nextOffset.integer = da.readingOffset;
-              buffer = da.data;
-            }
-          }
-          else {
+      if (readOffset + size + 2 <= da.writingOffset) {
+        current = new SerializedData(buffer, readOffset, size + 2);
+        current.dataOffset = readOffset + 2;
+        return true;
+      } else {
+        if (da.writingOffset == buffer.length) {
+          if (!switchToNextBlock()) {
             return false;
           }
+          nextOffset.integer = da.readingOffset;
+          return hasNext();
+        } else {
+          return false;
         }
       }
     }
-
   }
 
   private static final Logger logger = LoggerFactory.getLogger(FastDataList.class);

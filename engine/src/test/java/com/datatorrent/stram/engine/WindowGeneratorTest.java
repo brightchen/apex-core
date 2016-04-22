@@ -1,17 +1,20 @@
 /**
- * Copyright (C) 2015 DataTorrent, Inc.
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *         http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package com.datatorrent.stram.engine;
 
@@ -19,19 +22,21 @@ import java.io.File;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
-import org.junit.Assert;
 
+import org.junit.Assert;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.datatorrent.api.Context;
+import com.datatorrent.api.Context.OperatorContext;
+import com.datatorrent.api.DefaultInputPort;
+import com.datatorrent.api.DefaultOutputPort;
+import com.datatorrent.api.InputOperator;
+import com.datatorrent.api.Sink;
+import com.datatorrent.bufferserver.packet.MessageType;
 import com.datatorrent.common.util.AsyncFSStorageAgent;
 import com.datatorrent.common.util.BaseOperator;
-
-import com.datatorrent.api.*;
-import com.datatorrent.api.Context.OperatorContext;
-
-import com.datatorrent.bufferserver.packet.MessageType;
 import com.datatorrent.common.util.ScheduledThreadPoolExecutor;
 import com.datatorrent.stram.StramLocalCluster;
 import com.datatorrent.stram.plan.logical.LogicalPlan;
@@ -104,6 +109,9 @@ public class WindowGeneratorTest
         case RESET_WINDOW:
           resetWindowCount.incrementAndGet();
           break;
+
+        default:
+          break;
       }
     }
 
@@ -145,8 +153,7 @@ public class WindowGeneratorTest
         if (firsttime) {
           assert (payload instanceof ResetWindowTuple);
           firsttime = false;
-        }
-        else {
+        } else {
           assert (payload instanceof Tuple);
         }
       }
@@ -256,8 +263,7 @@ public class WindowGeneratorTest
     {
       try {
         Thread.sleep(500);
-      }
-      catch (InterruptedException ex) {
+      } catch (InterruptedException ex) {
         logger.debug("interrupted!", ex);
       }
 
@@ -306,7 +312,7 @@ public class WindowGeneratorTest
     logger.info("Testing Out of Sequence Error");
     LogicalPlan dag = new LogicalPlan();
     String workingDir = new File("target/testOutofSequenceError").getAbsolutePath();
-    dag.setAttribute(Context.OperatorContext.STORAGE_AGENT, new AsyncFSStorageAgent(workingDir + "/localPath", workingDir, null));
+    dag.setAttribute(Context.OperatorContext.STORAGE_AGENT, new AsyncFSStorageAgent(workingDir, null));
     RandomNumberGenerator rng = dag.addOperator("random", new RandomNumberGenerator());
     MyLogger ml = dag.addOperator("logger", new MyLogger());
 
@@ -321,16 +327,64 @@ public class WindowGeneratorTest
   {
     long first = 1431714014000L;
 
-    long time1 = WindowGenerator.getWindowMillis(6149164867354886271L, first, 500);
-    long time2 = WindowGenerator.getWindowMillis(6149164867354886272L, first, 500);
+    for (int windowWidthMillis : new int[]{500, 123}) {
+      long time1 = WindowGenerator.getWindowMillis(6149164867354886271L, first, windowWidthMillis);
+      long time2 = WindowGenerator.getWindowMillis(6149164867354886272L, first, windowWidthMillis);
 
-    long window1 = WindowGenerator.getWindowId(time1, first, 500);
-    long window2 = WindowGenerator.getWindowId(time2, first, 500);
+      long window1 = WindowGenerator.getWindowId(time1, first, windowWidthMillis);
+      long window2 = WindowGenerator.getWindowId(time2, first, windowWidthMillis);
 
-    Assert.assertEquals("window 1", 6149164867354886271L, window1);
-    Assert.assertEquals("window 2", 6149164867354886272L, window2);
+      Assert.assertEquals("window 1", 6149164867354886271L, window1);
+      Assert.assertEquals("window 2", 6149164867354886272L, window2);
 
-    Assert.assertTrue(time2 > time1);
+      Assert.assertEquals("window millis difference", windowWidthMillis, time2 - time1);
+    }
+  }
+
+  @Test
+  public void testWindowToTimeBaseSecondRollover()
+  {
+    long first = 1431714014123L;
+
+    for (int windowWidthMillis : new int[]{500, 123}) {
+      long window1 = WindowGenerator.getWindowId(first, first, windowWidthMillis);
+      window1 |= WindowGenerator.MAX_WINDOW_ID;
+      long window2 = WindowGenerator.getNextWindowId(window1, first, windowWidthMillis);
+      Assert.assertTrue("base seconds should be greater during an rollover", (window2 >> 32) > (window1 >> 32));
+      long time1 = WindowGenerator.getWindowMillis(window1, first, windowWidthMillis);
+      long time2 = WindowGenerator.getWindowMillis(window2, first, windowWidthMillis);
+
+      Assert.assertEquals("max window id", WindowGenerator.MAX_WINDOW_ID, window1 & WindowGenerator.WINDOW_MASK);
+      Assert.assertEquals("rollover after max", 0, window2 & WindowGenerator.WINDOW_MASK);
+      Assert.assertEquals("window millis difference", windowWidthMillis, time2 - time1);
+    }
+  }
+
+  @Test
+  public void testWindowIdAhead()
+  {
+    long first = 1431714014123L;
+    int ahead = 678;
+    for (int windowWidthMillis : new int[]{500, 123}) {
+      long window1 = WindowGenerator.getWindowId(first, first, windowWidthMillis);
+      long window2 = WindowGenerator.getAheadWindowId(window1, first, windowWidthMillis, ahead);
+      for (int i = 0; i < ahead; i++) {
+        window1 = WindowGenerator.getNextWindowId(window1, first, windowWidthMillis);
+      }
+      Assert.assertEquals(window2, window1);
+    }
+  }
+
+  @Test
+  public void testWindowIdCompare()
+  {
+    long first = 1431714014123L;
+    int ahead = 341;
+    for (int windowWidthMillis : new int[]{500, 123}) {
+      long window1 = WindowGenerator.getWindowId(first, first, windowWidthMillis);
+      long window2 = WindowGenerator.getAheadWindowId(window1, first, windowWidthMillis, ahead);
+      Assert.assertEquals(ahead, WindowGenerator.compareWindowId(window2, window1, first, windowWidthMillis));
+    }
   }
 
   public static final Logger logger = LoggerFactory.getLogger(WindowGeneratorTest.class);

@@ -1,34 +1,45 @@
 /**
- * Copyright (C) 2015 DataTorrent, Inc.
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *         http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package com.datatorrent.stram.engine;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.junit.Assert;
 import org.junit.Ignore;
 import org.junit.Test;
 
+import org.apache.hadoop.conf.Configuration;
+
 import com.datatorrent.api.Attribute.AttributeMap.DefaultAttributeMap;
 import com.datatorrent.api.Context.OperatorContext;
 import com.datatorrent.api.InputOperator;
 import com.datatorrent.api.Operator;
+import com.datatorrent.api.Operator.ProcessingMode;
 import com.datatorrent.api.StorageAgent;
 import com.datatorrent.api.annotation.Stateless;
+import com.datatorrent.common.util.FSStorageAgent;
+import com.datatorrent.common.util.ScheduledThreadPoolExecutor;
 import com.datatorrent.stram.StramLocalCluster;
+import com.datatorrent.stram.engine.GenericNodeTest.GenericCheckpointOperator;
+import com.datatorrent.stram.engine.InputNodeTest.InputCheckpointOperator;
 import com.datatorrent.stram.plan.logical.LogicalPlan;
 
 /**
@@ -195,7 +206,7 @@ public class NodeTest
     attributeMap.put(OperatorContext.STORAGE_AGENT, new StorageAgentImpl());
     attributeMap.put(OperatorContext.STATELESS, true);
     Node<StatelessOperator> node = new Node<StatelessOperator>(new StatelessOperator(),
-                                                               new com.datatorrent.stram.engine.OperatorContext(0, attributeMap, null))
+        new com.datatorrent.stram.engine.OperatorContext(0, attributeMap, null))
     {
       @Override
       public void connectInputPort(String port, SweepableReservoir reservoir)
@@ -211,11 +222,15 @@ public class NodeTest
 
     };
 
+    node.activate();
+
     synchronized (StorageAgentImpl.calls) {
       StorageAgentImpl.calls.clear();
       node.checkpoint(0);
       Assert.assertEquals("Calls to StorageAgent", 0, StorageAgentImpl.calls.size());
     }
+
+    node.deactivate();
   }
 
   @Test
@@ -224,7 +239,7 @@ public class NodeTest
     DefaultAttributeMap attributeMap = new DefaultAttributeMap();
     attributeMap.put(OperatorContext.STORAGE_AGENT, new StorageAgentImpl());
     Node<TestGenericOperator> node = new Node<TestGenericOperator>(new TestGenericOperator(),
-                                                                   new com.datatorrent.stram.engine.OperatorContext(0, attributeMap, null))
+        new com.datatorrent.stram.engine.OperatorContext(0, attributeMap, null))
     {
       @Override
       public void connectInputPort(String port, SweepableReservoir reservoir)
@@ -240,11 +255,94 @@ public class NodeTest
 
     };
 
+    node.activate();
+
     synchronized (StorageAgentImpl.calls) {
       StorageAgentImpl.calls.clear();
       node.checkpoint(0);
       Assert.assertEquals("Calls to StorageAgent", 1, StorageAgentImpl.calls.size());
     }
+
+    node.deactivate();
   }
 
+  @SuppressWarnings("SleepWhileInLoop")
+  public static void testDoubleCheckpointHandling(ProcessingMode processingMode, boolean trueGenericFalseInput, String path)
+      throws Exception
+  {
+    WindowGenerator windowGenerator = new WindowGenerator(new ScheduledThreadPoolExecutor(1, "WindowGenerator"), 1024);
+    windowGenerator.setResetWindow(0L);
+    windowGenerator.setFirstWindow(0L);
+    windowGenerator.setWindowWidth(100);
+    windowGenerator.setCheckpointCount(1, 0);
+
+    GenericCheckpointOperator gco;
+
+    if (trueGenericFalseInput) {
+      gco = new GenericCheckpointOperator();
+    } else {
+      gco = new InputCheckpointOperator();
+    }
+    DefaultAttributeMap dam = new DefaultAttributeMap();
+    dam.put(com.datatorrent.stram.engine.OperatorContext.APPLICATION_WINDOW_COUNT, 2);
+    dam.put(com.datatorrent.stram.engine.OperatorContext.CHECKPOINT_WINDOW_COUNT, 2);
+    dam.put(com.datatorrent.stram.engine.OperatorContext.PROCESSING_MODE, processingMode);
+    dam.put(com.datatorrent.stram.engine.OperatorContext.STORAGE_AGENT, new FSStorageAgent(path, new Configuration()));
+
+    final Node in;
+
+    if (trueGenericFalseInput) {
+      in = new GenericNode(gco, new com.datatorrent.stram.engine.OperatorContext(0, dam, null));
+    } else {
+      in = new InputNode((InputCheckpointOperator)gco, new com.datatorrent.stram.engine.OperatorContext(0, dam, null));
+    }
+
+    in.setId(1);
+
+    TestSink testSink = new TestSink();
+    String inputPort;
+
+    if (trueGenericFalseInput) {
+      inputPort = "ip1";
+    } else {
+      inputPort = Node.INPUT;
+    }
+
+    in.connectInputPort(inputPort, windowGenerator.acquireReservoir(String.valueOf(in.id), 1024));
+    in.connectOutputPort("output", testSink);
+    in.firstWindowMillis = 0;
+    in.windowWidthMillis = 100;
+
+    windowGenerator.activate(null);
+
+    final AtomicBoolean ab = new AtomicBoolean(false);
+    Thread t = new Thread()
+    {
+      @Override
+      public void run()
+      {
+        ab.set(true);
+        in.activate();
+        in.run();
+        in.deactivate();
+      }
+    };
+
+    t.start();
+
+    long startTime = System.currentTimeMillis();
+    long endTime = 0;
+
+    while (gco.numWindows < 3 && ((endTime = System.currentTimeMillis()) - startTime) < 6000) {
+      Thread.sleep(50);
+    }
+
+    in.shutdown();
+    t.join();
+
+    windowGenerator.deactivate();
+
+    Assert.assertFalse(gco.checkpointTwice);
+    Assert.assertTrue("Timed out", (endTime - startTime) < 5000);
+  }
 }

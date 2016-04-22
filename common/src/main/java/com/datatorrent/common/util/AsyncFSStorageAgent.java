@@ -1,38 +1,55 @@
 
 /**
- * Copyright (C) 2015 DataTorrent, Inc.
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *         http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *
- * @since 3.1.0
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package com.datatorrent.common.util;
 
-import java.io.*;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.ObjectStreamException;
+import java.nio.file.Files;
 import java.util.EnumSet;
 
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.*;
-import org.apache.hadoop.io.IOUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.datatorrent.netlet.util.DTThrowable;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.CreateFlag;
+import org.apache.hadoop.fs.FSDataOutputStream;
+import org.apache.hadoop.fs.FileUtil;
+import org.apache.hadoop.fs.Options;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.IOUtils;
+
+import com.google.common.base.Throwables;
+
+/**
+ * <p>AsyncFSStorageAgent class.</p>
+ *
+ * @since 3.1.0
+ */
 public class AsyncFSStorageAgent extends FSStorageAgent
 {
-  private final transient FileSystem fs;
   private final transient Configuration conf;
-  private final String localBasePath;
+  private transient volatile String localBasePath;
 
   private boolean syncCheckpoint = false;
 
@@ -40,37 +57,37 @@ public class AsyncFSStorageAgent extends FSStorageAgent
   private AsyncFSStorageAgent()
   {
     super();
-    fs = null;
     conf = null;
     localBasePath = null;
   }
 
   public AsyncFSStorageAgent(String path, Configuration conf)
   {
-    this(".", path, conf);
+    super(path, conf);
+    this.conf = conf == null ? new Configuration() : conf;
   }
 
+  /*
+   * Storage Agent should internally manage localBasePath. It should not take it from user
+   */
+  @Deprecated
   public AsyncFSStorageAgent(String localBasePath, String path, Configuration conf)
   {
-    super(path, conf);
-    if (localBasePath == null) {
-      this.localBasePath = "/tmp";
-    }
-    else {
-      this.localBasePath = localBasePath;
-    }
-    logger.debug("Initialize storage agent with {}.", this.localBasePath);
-    this.conf = conf == null ? new Configuration() : conf;
-    try {
-      fs = FileSystem.newInstance(this.conf);
-    } catch (IOException ex) {
-      throw new RuntimeException(ex);
-    }
+    this(path, conf);
   }
 
   @Override
   public void save(final Object object, final int operatorId, final long windowId) throws IOException
   {
+    // save() is only called by one thread in the worker container so the following is okay
+    if (this.localBasePath == null) {
+      this.localBasePath = Files.createTempDirectory("chkp").toString();
+      logger.info("using {} as the basepath for checkpointing.", this.localBasePath);
+    }
+    if (syncCheckpoint) {
+      super.save(object, operatorId, windowId);
+      return;
+    }
     String operatorIdStr = String.valueOf(operatorId);
     File directory = new File(localBasePath, operatorIdStr);
     if (!directory.exists()) {
@@ -83,6 +100,9 @@ public class AsyncFSStorageAgent extends FSStorageAgent
 
   public void copyToHDFS(final int operatorId, final long windowId) throws IOException
   {
+    if (this.localBasePath == null) {
+      throw new AssertionError("save() was not called before copyToHDFS");
+    }
     String operatorIdStr = String.valueOf(operatorId);
     File directory = new File(localBasePath, operatorIdStr);
     String window = Long.toHexString(windowId);
@@ -104,7 +124,7 @@ public class AsyncFSStorageAgent extends FSStorageAgent
     } catch (Throwable t) {
       logger.debug("while saving {} {}", operatorId, window, t);
       stateSaved = false;
-      DTThrowable.rethrow(t);
+      throw Throwables.propagate(t);
     } finally {
       try {
         if (stream != null) {
@@ -125,7 +145,9 @@ public class AsyncFSStorageAgent extends FSStorageAgent
   @Override
   public Object readResolve() throws ObjectStreamException
   {
-    return new AsyncFSStorageAgent(this.localBasePath, this.path, null);
+    AsyncFSStorageAgent asyncFSStorageAgent = new AsyncFSStorageAgent(this.path, null);
+    asyncFSStorageAgent.setSyncCheckpoint(syncCheckpoint);
+    return asyncFSStorageAgent;
   }
 
   public boolean isSyncCheckpoint()

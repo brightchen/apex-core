@@ -1,17 +1,20 @@
 /**
- * Copyright (C) 2015 DataTorrent, Inc.
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *         http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package com.datatorrent.stram.stream;
 
@@ -25,12 +28,16 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.datatorrent.api.Attribute.AttributeMap.DefaultAttributeMap;
-import com.datatorrent.common.util.BaseOperator;
 import com.datatorrent.api.DefaultInputPort;
 import com.datatorrent.api.DefaultOutputPort;
 import com.datatorrent.api.Sink;
-
-import com.datatorrent.stram.engine.*;
+import com.datatorrent.common.util.BaseOperator;
+import com.datatorrent.stram.engine.AbstractReservoir;
+import com.datatorrent.stram.engine.GenericNode;
+import com.datatorrent.stram.engine.Node;
+import com.datatorrent.stram.engine.OperatorContext;
+import com.datatorrent.stram.engine.StreamContext;
+import com.datatorrent.stram.engine.SweepableReservoir;
 import com.datatorrent.stram.support.StramTestSupport;
 import com.datatorrent.stram.support.StramTestSupport.WaitCondition;
 import com.datatorrent.stram.tuple.Tuple;
@@ -63,15 +70,11 @@ public class InlineStreamTest
     stream.setup(streamContext);
 
     node1.connectOutputPort("output", stream);
-    node2.connectInputPort("input", stream);
+    node2.connectInputPort("input", stream.getReservoir());
 
     prev = null;
     Sink<Object> sink = new Sink<Object>()
     {
-      /**
-       *
-       * @param t the value of t
-       */
       @Override
       public void put(Object payload)
       {
@@ -81,8 +84,7 @@ public class InlineStreamTest
 
         if (prev == null) {
           prev = payload;
-        }
-        else {
+        } else {
           if (Integer.valueOf(payload.toString()) - Integer.valueOf(prev.toString()) != 1) {
             synchronized (InlineStreamTest.this) {
               InlineStreamTest.this.notify();
@@ -108,7 +110,7 @@ public class InlineStreamTest
     };
     node2.connectOutputPort("output", sink);
 
-    DefaultReservoir reservoir1 = new DefaultReservoir("input", 1024 * 5);
+    AbstractReservoir reservoir1 = AbstractReservoir.newReservoir("input", 1024 * 5);
     node1.connectInputPort("input", reservoir1);
 
     Map<Integer, Node<?>> activeNodes = new ConcurrentHashMap<Integer, Node<?>>();
@@ -136,8 +138,9 @@ public class InlineStreamTest
       @Override
       public boolean isComplete()
       {
-        logger.debug("stream size={}", stream.size());
-        return stream.size() == 0;
+        final SweepableReservoir reservoir = stream.getReservoir();
+        logger.debug("stream {} empty {}, size {}", stream, reservoir.isEmpty(), reservoir.size(false));
+        return reservoir.isEmpty();
       }
     };
 

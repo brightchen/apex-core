@@ -1,17 +1,20 @@
 /**
- * Copyright (C) 2015 DataTorrent, Inc.
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *         http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package com.datatorrent.stram.appdata;
 
@@ -22,28 +25,32 @@ import java.beans.PropertyDescriptor;
 import java.io.IOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Queue;
 
-import org.apache.commons.lang3.ClassUtils;
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.service.AbstractService;
 import org.codehaus.jettison.json.JSONArray;
 import org.codehaus.jettison.json.JSONException;
 import org.codehaus.jettison.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.google.common.collect.Maps;
+import org.apache.commons.lang3.ClassUtils;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.service.AbstractService;
 
 import com.datatorrent.api.AutoMetric;
 import com.datatorrent.api.Context.DAGContext;
-
+import com.datatorrent.common.metric.AutoMetricBuiltInTransport;
 import com.datatorrent.common.util.Pair;
+import com.datatorrent.stram.PubSubWebSocketMetricTransport;
 import com.datatorrent.stram.StramAppContext;
 import com.datatorrent.stram.StreamingContainerManager;
-import com.datatorrent.stram.WebsocketAppDataPusher;
-import com.datatorrent.stram.api.AppDataPusher;
 import com.datatorrent.stram.plan.logical.LogicalPlan;
+import com.datatorrent.stram.plan.logical.MetricAggregatorMeta;
 import com.datatorrent.stram.webapp.LogicalOperatorInfo;
 
 /**
@@ -57,16 +64,15 @@ public class AppDataPushAgent extends AbstractService
   private static final String METRICS_SCHEMA_VERSION = "1.0";
   private static final String DATA = "data";
   private static final Logger LOG = LoggerFactory.getLogger(AppDataPushAgent.class);
-  private static final String APP_DATA_PUSH_TRANSPORT_BUILTIN_VALUE = "builtin";
   private final StreamingContainerManager dnmgr;
   private final StramAppContext appContext;
   private final AppDataPushThread appDataPushThread = new AppDataPushThread();
-  private AppDataPusher appDataPusher;
-  private final Map<Class<?>, List<Field>> cacheFields = new HashMap<Class<?>, List<Field>>();
-  private final Map<Class<?>, Map<String, Method>> cacheGetMethods = new HashMap<Class<?>, Map<String, Method>>();
+  private AutoMetric.Transport metricsTransport;
+  private final Map<Class<?>, List<Field>> cacheFields = new HashMap<>();
+  private final Map<Class<?>, Map<String, Method>> cacheGetMethods = new HashMap<>();
 
-  private final Map<String, Long> operatorsSchemaLastSentTime = Maps.newHashMap();
-  private final Map<String, JSONObject> operatorSchemas = Maps.newHashMap();
+  private final Map<String, Long> operatorsSchemaLastSentTime = new HashMap<>();
+  private final Map<String, JSONObject> operatorSchemas = new HashMap<>();
 
   public AppDataPushAgent(StreamingContainerManager dnmgr, StramAppContext appContext)
   {
@@ -78,7 +84,7 @@ public class AppDataPushAgent extends AbstractService
   @Override
   protected void serviceStop() throws Exception
   {
-    if (appDataPusher != null) {
+    if (metricsTransport != null) {
       appDataPushThread.interrupt();
       try {
         appDataPushThread.join();
@@ -92,7 +98,7 @@ public class AppDataPushAgent extends AbstractService
   @Override
   protected void serviceStart() throws Exception
   {
-    if (appDataPusher != null) {
+    if (metricsTransport != null) {
       appDataPushThread.start();
     }
     super.serviceStart();
@@ -107,15 +113,12 @@ public class AppDataPushAgent extends AbstractService
 
   public void init()
   {
-    String appDataPushTransport = dnmgr.getLogicalPlan().getValue(DAGContext.METRICS_TRANSPORT);
-    if (appDataPushTransport.startsWith(APP_DATA_PUSH_TRANSPORT_BUILTIN_VALUE + ":")) {
-      String topic = appDataPushTransport.substring(APP_DATA_PUSH_TRANSPORT_BUILTIN_VALUE.length() + 1);
-      appDataPusher = new WebsocketAppDataPusher(dnmgr.getWsClient(), topic);
-      LOG.info("App Data Push Transport set up for {}", appDataPushTransport);
-    } else {
-      // TBD add kakfa
-      LOG.error("App Data Push Transport not recognized: {}", appDataPushTransport);
+    metricsTransport = dnmgr.getLogicalPlan().getValue(DAGContext.METRICS_TRANSPORT);
+    if (metricsTransport instanceof AutoMetricBuiltInTransport) {
+      AutoMetricBuiltInTransport transport = (AutoMetricBuiltInTransport)metricsTransport;
+      metricsTransport = new PubSubWebSocketMetricTransport(dnmgr.getWsClient(), transport.getTopic(), transport.getSchemaResendInterval());
     }
+    LOG.info("Metrics Transport set up for {}", metricsTransport);
   }
 
   private JSONObject getPushData()
@@ -129,7 +132,6 @@ public class AppDataPushAgent extends AbstractService
       json.put("appUser", appContext.getUser());
       List<LogicalOperatorInfo> logicalOperatorInfoList = dnmgr.getLogicalOperatorInfoList();
       JSONObject logicalOperators = new JSONObject();
-      long resendSchemaInterval = appDataPusher.getResendSchemaInterval();
       for (LogicalOperatorInfo logicalOperator : logicalOperatorInfoList) {
         JSONObject logicalOperatorJson = extractFields(logicalOperator);
         JSONArray metricsList = new JSONArray();
@@ -141,8 +143,8 @@ public class AppDataPushAgent extends AbstractService
             // metric name, aggregated value
             Map<String, Object> aggregates = metrics.second;
             long now = System.currentTimeMillis();
-            if (!operatorsSchemaLastSentTime.containsKey(logicalOperator.name)
-                    || operatorsSchemaLastSentTime.get(logicalOperator.name) < now - resendSchemaInterval) {
+            if (!operatorsSchemaLastSentTime.containsKey(logicalOperator.name) ||
+                (metricsTransport.getSchemaResendInterval() > 0 && operatorsSchemaLastSentTime.get(logicalOperator.name) < now - metricsTransport.getSchemaResendInterval())) {
               try {
                 pushMetricsSchema(dnmgr.getLogicalPlan().getOperatorMeta(logicalOperator.name), aggregates);
                 operatorsSchemaLastSentTime.put(logicalOperator.name, now);
@@ -183,7 +185,7 @@ public class AppDataPushAgent extends AbstractService
     if (cacheFields.containsKey(o.getClass())) {
       fields = cacheFields.get(o.getClass());
     } else {
-      fields = new ArrayList<Field>();
+      fields = new ArrayList<>();
 
       for (Class<?> c = o.getClass(); c != Object.class; c = c.getSuperclass()) {
         Field[] declaredFields = c.getDeclaredFields();
@@ -213,7 +215,7 @@ public class AppDataPushAgent extends AbstractService
     if (cacheGetMethods.containsKey(o.getClass())) {
       methods = cacheGetMethods.get(o.getClass());
     } else {
-      methods = new HashMap<String, Method>();    
+      methods = new HashMap<>();
       try {
         BeanInfo info = Introspector.getBeanInfo(o.getClass());
         for (PropertyDescriptor pd : info.getPropertyDescriptors()) {
@@ -250,7 +252,7 @@ public class AppDataPushAgent extends AbstractService
       result.put("appName", dnmgr.getApplicationAttributes().get(DAGContext.APPLICATION_NAME));
       result.put("logicalOperatorName", operatorMeta.getName());
 
-      LogicalPlan.MetricAggregatorMeta metricAggregatorMeta = operatorMeta.getMetricAggregatorMeta();
+      MetricAggregatorMeta metricAggregatorMeta = operatorMeta.getMetricAggregatorMeta();
       JSONArray valueSchemas = new JSONArray();
       for (Map.Entry<String, Object> entry : aggregates.entrySet()) {
         String metricName = entry.getKey();
@@ -261,14 +263,14 @@ public class AppDataPushAgent extends AbstractService
         valueSchema.put("type", type == null ? metricValue.getClass().getCanonicalName() : type);
         String[] dimensionAggregators = metricAggregatorMeta.getDimensionAggregatorsFor(metricName);
         if (dimensionAggregators != null) {
-          valueSchema.put("dimensionAggregators", dimensionAggregators);
+          valueSchema.put("dimensionAggregators", Arrays.asList(dimensionAggregators));
         }
         valueSchemas.put(valueSchema);
       }
       result.put("values", valueSchemas);
       String[] timeBuckets = metricAggregatorMeta.getTimeBuckets();
       if (timeBuckets != null) {
-        result.put("timeBuckets", timeBuckets);
+        result.put("timeBuckets", Arrays.asList(timeBuckets));
       }
 
     } catch (JSONException ex) {
@@ -284,12 +286,12 @@ public class AppDataPushAgent extends AbstractService
       schema = getMetricsSchemaData(operatorMeta, aggregates);
       operatorSchemas.put(operatorMeta.getName(), schema);
     }
-    appDataPusher.push(schema);
+    metricsTransport.push(schema.toString());
   }
 
   public void pushData() throws IOException
   {
-    appDataPusher.push(getPushData());
+    metricsTransport.push(getPushData().toString());
   }
 
   public class AppDataPushThread extends Thread

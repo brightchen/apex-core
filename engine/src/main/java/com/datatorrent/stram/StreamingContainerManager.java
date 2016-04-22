@@ -1,46 +1,63 @@
 /**
- * Copyright (C) 2015 DataTorrent, Inc.
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *         http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package com.datatorrent.stram;
 
-import java.io.*;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.io.Serializable;
 import java.lang.management.ManagementFactory;
 import java.lang.reflect.Field;
 import java.net.InetSocketAddress;
 import java.net.URI;
-import java.util.*;
-import java.util.concurrent.*;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.EnumSet;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.ListIterator;
+import java.util.Map;
+import java.util.Queue;
+import java.util.Set;
+import java.util.TreeSet;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 import javax.annotation.Nullable;
-
-import com.datatorrent.netlet.util.DTThrowable;
-import com.esotericsoftware.kryo.KryoException;
-import com.esotericsoftware.kryo.io.Input;
-import com.esotericsoftware.kryo.io.Output;
-import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Predicate;
-import com.google.common.cache.Cache;
-import com.google.common.cache.CacheBuilder;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
-
-import net.engio.mbassy.bus.MBassador;
-import net.engio.mbassy.bus.config.BusConfiguration;
 
 import org.codehaus.jettison.json.JSONArray;
 import org.codehaus.jettison.json.JSONException;
@@ -68,13 +85,33 @@ import org.apache.hadoop.yarn.util.Clock;
 import org.apache.hadoop.yarn.util.SystemClock;
 import org.apache.hadoop.yarn.webapp.NotFoundException;
 
-import com.datatorrent.api.*;
+import com.esotericsoftware.kryo.KryoException;
+import com.esotericsoftware.kryo.io.Input;
+import com.esotericsoftware.kryo.io.Output;
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Objects;
+import com.google.common.base.Predicate;
+import com.google.common.base.Throwables;
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
+
+import com.datatorrent.api.Attribute;
+import com.datatorrent.api.AutoMetric;
+import com.datatorrent.api.Component;
+import com.datatorrent.api.Context;
 import com.datatorrent.api.Context.OperatorContext;
+import com.datatorrent.api.Operator;
 import com.datatorrent.api.Operator.InputPort;
 import com.datatorrent.api.Operator.OutputPort;
 import com.datatorrent.api.Stats.OperatorStats;
+import com.datatorrent.api.StatsListener;
+import com.datatorrent.api.StorageAgent;
+import com.datatorrent.api.StreamCodec;
+import com.datatorrent.api.StringCodec;
 import com.datatorrent.api.annotation.Stateless;
-
 import com.datatorrent.bufferserver.auth.AuthManager;
 import com.datatorrent.bufferserver.util.Codec;
 import com.datatorrent.common.experimental.AppData;
@@ -84,32 +121,58 @@ import com.datatorrent.common.util.NumberAggregate;
 import com.datatorrent.common.util.Pair;
 import com.datatorrent.stram.Journal.Recoverable;
 import com.datatorrent.stram.StreamingContainerAgent.ContainerStartRequest;
-import com.datatorrent.stram.api.*;
-import com.datatorrent.stram.api.StreamingContainerUmbilicalProtocol.*;
+import com.datatorrent.stram.api.AppDataSource;
+import com.datatorrent.stram.api.Checkpoint;
+import com.datatorrent.stram.api.ContainerContext;
+import com.datatorrent.stram.api.OperatorDeployInfo;
+import com.datatorrent.stram.api.StramEvent;
+import com.datatorrent.stram.api.StramToNodeChangeLoggersRequest;
+import com.datatorrent.stram.api.StramToNodeGetPropertyRequest;
+import com.datatorrent.stram.api.StramToNodeSetPropertyRequest;
+import com.datatorrent.stram.api.StramToNodeStartRecordingRequest;
+import com.datatorrent.stram.api.StreamingContainerUmbilicalProtocol.ContainerHeartbeat;
+import com.datatorrent.stram.api.StreamingContainerUmbilicalProtocol.ContainerHeartbeatResponse;
+import com.datatorrent.stram.api.StreamingContainerUmbilicalProtocol.ContainerStats;
+import com.datatorrent.stram.api.StreamingContainerUmbilicalProtocol.OperatorHeartbeat;
+import com.datatorrent.stram.api.StreamingContainerUmbilicalProtocol.StramToNodeRequest;
+import com.datatorrent.stram.api.StreamingContainerUmbilicalProtocol.StreamingContainerContext;
 import com.datatorrent.stram.engine.OperatorResponse;
 import com.datatorrent.stram.engine.StreamingContainer;
 import com.datatorrent.stram.engine.WindowGenerator;
 import com.datatorrent.stram.plan.logical.LogicalOperatorStatus;
 import com.datatorrent.stram.plan.logical.LogicalPlan;
 import com.datatorrent.stram.plan.logical.LogicalPlan.InputPortMeta;
+import com.datatorrent.stram.plan.logical.LogicalPlan.ModuleMeta;
 import com.datatorrent.stram.plan.logical.LogicalPlan.OperatorMeta;
 import com.datatorrent.stram.plan.logical.LogicalPlan.OutputPortMeta;
 import com.datatorrent.stram.plan.logical.LogicalPlanConfiguration;
 import com.datatorrent.stram.plan.logical.Operators;
 import com.datatorrent.stram.plan.logical.Operators.PortContextPair;
 import com.datatorrent.stram.plan.logical.requests.LogicalPlanRequest;
-import com.datatorrent.stram.plan.physical.*;
+import com.datatorrent.stram.plan.physical.OperatorStatus;
 import com.datatorrent.stram.plan.physical.OperatorStatus.PortStatus;
+import com.datatorrent.stram.plan.physical.PTContainer;
+import com.datatorrent.stram.plan.physical.PTOperator;
 import com.datatorrent.stram.plan.physical.PTOperator.PTInput;
 import com.datatorrent.stram.plan.physical.PTOperator.PTOutput;
 import com.datatorrent.stram.plan.physical.PTOperator.State;
+import com.datatorrent.stram.plan.physical.PhysicalPlan;
 import com.datatorrent.stram.plan.physical.PhysicalPlan.PlanContext;
+import com.datatorrent.stram.plan.physical.PlanModifier;
 import com.datatorrent.stram.util.ConfigUtils;
 import com.datatorrent.stram.util.FSJsonLineFile;
 import com.datatorrent.stram.util.MovingAverage.MovingAverageLong;
 import com.datatorrent.stram.util.SharedPubSubWebSocketClient;
 import com.datatorrent.stram.util.WebServicesClient;
-import com.datatorrent.stram.webapp.*;
+import com.datatorrent.stram.webapp.ContainerInfo;
+import com.datatorrent.stram.webapp.LogicalOperatorInfo;
+import com.datatorrent.stram.webapp.OperatorAggregationInfo;
+import com.datatorrent.stram.webapp.OperatorInfo;
+import com.datatorrent.stram.webapp.PortInfo;
+import com.datatorrent.stram.webapp.StreamInfo;
+
+import net.engio.mbassy.bus.MBassador;
+import net.engio.mbassy.bus.config.BusConfiguration;
 
 /**
  * Tracks topology provisioning/allocation to containers<p>
@@ -124,19 +187,19 @@ import com.datatorrent.stram.webapp.*;
  */
 public class StreamingContainerManager implements PlanContext
 {
-  private final static Logger LOG = LoggerFactory.getLogger(StreamingContainerManager.class);
-  public final static String GATEWAY_LOGIN_URL_PATH = "/ws/v2/login";
-  public final static String BUILTIN_APPDATA_URL = "builtin";
-  public final static String CONTAINERS_INFO_FILENAME_FORMAT = "containers_%d.json";
-  public final static String OPERATORS_INFO_FILENAME_FORMAT = "operators_%d.json";
-  public final static String APP_META_FILENAME = "meta.json";
-  public final static String APP_META_KEY_ATTRIBUTES = "attributes";
-  public final static String APP_META_KEY_METRICS = "metrics";
+  private static final Logger LOG = LoggerFactory.getLogger(StreamingContainerManager.class);
+  public static final String GATEWAY_LOGIN_URL_PATH = "/ws/v2/login";
+  public static final String BUILTIN_APPDATA_URL = "builtin";
+  public static final String CONTAINERS_INFO_FILENAME_FORMAT = "containers_%d.json";
+  public static final String OPERATORS_INFO_FILENAME_FORMAT = "operators_%d.json";
+  public static final String APP_META_FILENAME = "meta.json";
+  public static final String APP_META_KEY_ATTRIBUTES = "attributes";
+  public static final String APP_META_KEY_METRICS = "metrics";
+  public static final String EMBEDDABLE_QUERY_NAME_SUFFIX = ".query";
 
-  public final static long LATENCY_WARNING_THRESHOLD_MILLIS = 10 * 60 * 1000; // 10 minutes
-  public final static Recoverable SET_OPERATOR_PROPERTY = new SetOperatorProperty();
-  public final static Recoverable SET_PHYSICAL_OPERATOR_PROPERTY = new SetPhysicalOperatorProperty();
-  public final static int METRIC_QUEUE_SIZE = 1000;
+  public static final Recoverable SET_OPERATOR_PROPERTY = new SetOperatorProperty();
+  public static final Recoverable SET_PHYSICAL_OPERATOR_PROPERTY = new SetPhysicalOperatorProperty();
+  public static final int METRIC_QUEUE_SIZE = 1000;
 
   private final FinalVars vars;
   private final PhysicalPlan plan;
@@ -144,26 +207,28 @@ public class StreamingContainerManager implements PlanContext
   private SharedPubSubWebSocketClient wsClient;
   private FSStatsRecorder statsRecorder;
   private FSEventRecorder eventRecorder;
-  protected final Map<String, String> containerStopRequests = new ConcurrentHashMap<String, String>();
-  protected final ConcurrentLinkedQueue<ContainerStartRequest> containerStartRequests = new ConcurrentLinkedQueue<ContainerStartRequest>();
+  protected final Map<String, String> containerStopRequests = new ConcurrentHashMap<>();
+  protected final ConcurrentLinkedQueue<ContainerStartRequest> containerStartRequests = new ConcurrentLinkedQueue<>();
   protected boolean forcedShutdown = false;
-  private final ConcurrentLinkedQueue<Runnable> eventQueue = new ConcurrentLinkedQueue<Runnable>();
+  private final ConcurrentLinkedQueue<Runnable> eventQueue = new ConcurrentLinkedQueue<>();
   private final AtomicBoolean eventQueueProcessing = new AtomicBoolean();
   private final HashSet<PTContainer> pendingAllocation = Sets.newLinkedHashSet();
   protected String shutdownDiagnosticsMessage = "";
   private long lastResourceRequest = 0;
-  private final Map<String, StreamingContainerAgent> containers = new ConcurrentHashMap<String, StreamingContainerAgent>();
-  private final List<Pair<PTOperator, Long>> purgeCheckpoints = new ArrayList<Pair<PTOperator, Long>>();
+  private final Map<String, StreamingContainerAgent> containers = new ConcurrentHashMap<>();
+  private final List<Pair<PTOperator, Long>> purgeCheckpoints = new ArrayList<>();
+  private Map<OperatorMeta, Set<OperatorMeta>> checkpointGroups;
   private final Map<Long, Set<PTOperator>> shutdownOperators = new HashMap<>();
   private CriticalPathInfo criticalPathInfo;
-  private final ConcurrentMap<PTOperator, PTOperator> reportStats = Maps.newConcurrentMap();
+  private final ConcurrentMap<PTOperator, PTOperator> reportStats = new ConcurrentHashMap<>();
   private final AtomicBoolean deployChangeInProgress = new AtomicBoolean();
   private int deployChangeCnt;
   private MBassador<StramEvent> eventBus; // event bus for publishing stram events
-  final private Journal journal;
+  private final Journal journal;
   private RecoveryHandler recoveryHandler;
   // window id to node id to end window stats
-  private final ConcurrentSkipListMap<Long, Map<Integer, EndWindowStats>> endWindowStatsOperatorMap = new ConcurrentSkipListMap<Long, Map<Integer, EndWindowStats>>();
+  private final ConcurrentSkipListMap<Long, Map<Integer, EndWindowStats>> endWindowStatsOperatorMap = new ConcurrentSkipListMap<>();
+  private final ConcurrentMap<PTOperator, PTOperator> slowestUpstreamOp = new ConcurrentHashMap<>();
   private long committedWindowId;
   // (operator id, port name) to timestamp
   private final Map<Pair<Integer, String>, Long> operatorPortLastEndWindowTimestamps = Maps.newConcurrentMap();
@@ -171,12 +236,11 @@ public class StreamingContainerManager implements PlanContext
   private long lastStatsTimestamp = System.currentTimeMillis();
   private long currentEndWindowStatsWindowId;
   private long completeEndWindowStatsWindowId;
-  private final ConcurrentHashMap<String, MovingAverageLong> rpcLatencies = new ConcurrentHashMap<String, MovingAverageLong>();
+  private final ConcurrentHashMap<String, MovingAverageLong> rpcLatencies = new ConcurrentHashMap<>();
   private final AtomicLong nodeToStramRequestIds = new AtomicLong(1);
-  private long allocatedMemoryBytes = 0;
+  private int allocatedMemoryMB = 0;
   private List<AppDataSource> appDataSources = null;
   private final Cache<Long, Object> commandResponse = CacheBuilder.newBuilder().expireAfterWrite(1, TimeUnit.MINUTES).build();
-  private long lastLatencyWarningTime;
   private transient ExecutorService poolExecutor;
   private FileContext fileContext;
 
@@ -215,7 +279,7 @@ public class StreamingContainerManager implements PlanContext
   private static class EndWindowStats
   {
     long emitTimestamp = -1;
-    HashMap<String, Long> dequeueTimestamps = new HashMap<String, Long>(); // input port name to end window dequeue time
+    HashMap<String, Long> dequeueTimestamps = new HashMap<>(); // input port name to end window dequeue time
     Object counters;
     Map<String, Object> metrics;
   }
@@ -223,14 +287,31 @@ public class StreamingContainerManager implements PlanContext
   public static class CriticalPathInfo
   {
     long latency;
-    LinkedList<Integer> path = new LinkedList<Integer>();
+    final LinkedList<Integer> path;
+
+    public CriticalPathInfo()
+    {
+      this.path = new LinkedList<>();
+    }
+
+    private CriticalPathInfo(long latency, LinkedList<Integer> path)
+    {
+      this.latency = latency;
+      this.path = path;
+    }
+
+    @Override
+    protected Object clone() throws CloneNotSupportedException
+    {
+      return new CriticalPathInfo(this.latency, (LinkedList<Integer>)this.path.clone());
+    }
   }
 
   private static class SetOperatorProperty implements Recoverable
   {
-    final private String operatorName;
-    final private String propertyName;
-    final private String propertyValue;
+    private final String operatorName;
+    private final String propertyName;
+    private final String propertyValue;
 
     private SetOperatorProperty()
     {
@@ -273,9 +354,9 @@ public class StreamingContainerManager implements PlanContext
 
   private static class SetPhysicalOperatorProperty implements Recoverable
   {
-    final private int operatorId;
-    final private String propertyName;
-    final private String propertyValue;
+    private final int operatorId;
+    private final String propertyName;
+    private final String propertyValue;
 
     private SetPhysicalOperatorProperty()
     {
@@ -332,7 +413,7 @@ public class StreamingContainerManager implements PlanContext
     poolExecutor = Executors.newFixedThreadPool(4);
     // setup prior to plan creation for event recording
     if (enableEventRecording) {
-      this.eventBus = new MBassador<StramEvent>(BusConfiguration.Default(1, 1, 1));
+      this.eventBus = new MBassador<>(BusConfiguration.Default(1, 1, 1));
     }
     this.plan = new PhysicalPlan(dag, this);
     this.journal = new Journal(this);
@@ -345,7 +426,7 @@ public class StreamingContainerManager implements PlanContext
     this.clock = new SystemClock();
     poolExecutor = Executors.newFixedThreadPool(4);
     this.plan = checkpointedState.physicalPlan;
-    this.eventBus = new MBassador<StramEvent>(BusConfiguration.Default(1, 1, 1));
+    this.eventBus = new MBassador<>(BusConfiguration.Default(1, 1, 1));
     this.journal = new Journal(this);
     init(enableEventRecording);
   }
@@ -368,11 +449,12 @@ public class StreamingContainerManager implements PlanContext
       fileName = String.format(OPERATORS_INFO_FILENAME_FORMAT, plan.getLogicalPlan().getValue(LogicalPlan.APPLICATION_ATTEMPT_ID));
       this.operatorFile = new FSJsonLineFile(fileContext, new Path(this.vars.appPath, fileName), FsPermission.getDefault());
     } catch (IOException ex) {
-      throw DTThrowable.wrapIfChecked(ex);
+      throw Throwables.propagate(ex);
     }
   }
 
-  public Journal getJournal() {
+  public Journal getJournal()
+  {
     return journal;
   }
 
@@ -394,7 +476,7 @@ public class StreamingContainerManager implements PlanContext
       }
       if (nmHttpPort != null) {
         String nodeHttpAddress = nmHost + ":" + nmHttpPort;
-        if (allocatedMemoryBytes == 0) {
+        if (allocatedMemoryMB == 0) {
           String url = ConfigUtils.getSchemePrefix(conf) + nodeHttpAddress + "/ws/v1/node/containers/" + ci.id;
           WebServicesClient webServicesClient = new WebServicesClient();
           try {
@@ -402,12 +484,11 @@ public class StreamingContainerManager implements PlanContext
             JSONObject json = new JSONObject(content);
             int totalMemoryNeededMB = json.getJSONObject("container").getInt("totalMemoryNeededMB");
             if (totalMemoryNeededMB > 0) {
-              allocatedMemoryBytes = totalMemoryNeededMB * 1024 * 1024;
+              allocatedMemoryMB = totalMemoryNeededMB;
             } else {
               LOG.warn("Could not determine the memory allocated for the streaming application master.  Node manager is reporting {} MB from {}", totalMemoryNeededMB, url);
             }
-          }
-          catch (Exception ex) {
+          } catch (Exception ex) {
             LOG.warn("Could not determine the memory allocated for the streaming application master", ex);
           }
         }
@@ -415,7 +496,7 @@ public class StreamingContainerManager implements PlanContext
         ci.rawContainerLogsUrl = ConfigUtils.getRawContainerLogsUrl(conf, nodeHttpAddress, plan.getLogicalPlan().getAttributes().get(LogicalPlan.APPLICATION_ID), ci.id);
       }
     }
-    ci.memoryMBAllocated = (int)(allocatedMemoryBytes / (1024 * 1024));
+    ci.memoryMBAllocated = allocatedMemoryMB;
     ci.memoryMBFree = ((int)(Runtime.getRuntime().freeMemory() / (1024 * 1024)));
     ci.lastHeartbeat = -1;
     ci.startedTime = startTime;
@@ -466,18 +547,18 @@ public class StreamingContainerManager implements PlanContext
     boolean gatewayUseSsl = plan.getLogicalPlan().getValue(LogicalPlan.GATEWAY_USE_SSL);
     String gatewayUserName = plan.getLogicalPlan().getValue(LogicalPlan.GATEWAY_USER_NAME);
     String gatewayPassword = plan.getLogicalPlan().getValue(LogicalPlan.GATEWAY_PASSWORD);
+    int timeout = plan.getLogicalPlan().getValue(LogicalPlan.PUBSUB_CONNECT_TIMEOUT_MILLIS);
 
     if (gatewayAddress != null) {
       try {
-        wsClient = new SharedPubSubWebSocketClient((gatewayUseSsl ? "wss://" : "ws://") + gatewayAddress + "/pubsub", 500);
+        wsClient = new SharedPubSubWebSocketClient((gatewayUseSsl ? "wss://" : "ws://") + gatewayAddress + "/pubsub", timeout);
         if (gatewayUserName != null && gatewayPassword != null) {
           wsClient.setLoginUrl((gatewayUseSsl ? "https://" : "http://") + gatewayAddress + GATEWAY_LOGIN_URL_PATH);
           wsClient.setUserName(gatewayUserName);
           wsClient.setPassword(gatewayPassword);
         }
         wsClient.setup();
-      }
-      catch (Exception ex) {
+      } catch (Exception ex) {
         LOG.warn("Cannot establish websocket connection to {}", gatewayAddress, ex);
       }
     }
@@ -497,7 +578,7 @@ public class StreamingContainerManager implements PlanContext
 
     IOUtils.closeQuietly(containerFile);
     IOUtils.closeQuietly(operatorFile);
-    if(poolExecutor != null) {
+    if (poolExecutor != null) {
       poolExecutor.shutdown();
     }
     if(poolExecutor != null) {
@@ -560,7 +641,7 @@ public class StreamingContainerManager implements PlanContext
   {
     synchronized (appDataSourcesLock) {
       if (appDataSources == null) {
-        appDataSources = new ArrayList<AppDataSource>();
+        appDataSources = new ArrayList<>();
         operators:
         for (LogicalPlan.OperatorMeta operatorMeta : plan.getLogicalPlan().getAllOperators()) {
           Map<LogicalPlan.InputPortMeta, LogicalPlan.StreamMeta> inputStreams = operatorMeta.getInputStreams();
@@ -570,17 +651,38 @@ public class StreamingContainerManager implements PlanContext
           String queryUrl = null;
           String queryTopic = null;
 
-          LOG.warn("DEBUG: looking at operator {} {}", operatorMeta.getName(), Thread.currentThread().getId());
+          boolean hasEmbeddedQuery = false;
+
+          //Discover embeddable query connectors
+          if (operatorMeta.getOperator() instanceof AppData.Store<?>) {
+            AppData.Store<?> store = (AppData.Store<?>)operatorMeta.getOperator();
+            AppData.EmbeddableQueryInfoProvider<?> embeddableQuery = store.getEmbeddableQueryInfoProvider();
+
+            if (embeddableQuery != null) {
+              hasEmbeddedQuery = true;
+              queryOperatorName = operatorMeta.getName() + EMBEDDABLE_QUERY_NAME_SUFFIX;
+              queryUrl = embeddableQuery.getAppDataURL();
+              queryTopic = embeddableQuery.getTopic();
+            }
+          }
+
+          //Discover separate query operators
+          LOG.debug("Looking at operator {} {}", operatorMeta.getName(), Thread.currentThread().getId());
           for (Map.Entry<LogicalPlan.InputPortMeta, LogicalPlan.StreamMeta> entry : inputStreams.entrySet()) {
             LogicalPlan.InputPortMeta portMeta = entry.getKey();
             if (portMeta.isAppDataQueryPort()) {
               if (queryUrl == null) {
                 OperatorMeta queryOperatorMeta = entry.getValue().getSource().getOperatorMeta();
                 if (queryOperatorMeta.getOperator() instanceof AppData.ConnectionInfoProvider) {
-                  AppData.ConnectionInfoProvider queryOperator = (AppData.ConnectionInfoProvider) queryOperatorMeta.getOperator();
-                  queryOperatorName = queryOperatorMeta.getName();
-                  queryUrl = queryOperator.getAppDataURL();
-                  queryTopic = queryOperator.getTopic();
+                  if (!hasEmbeddedQuery) {
+                    AppData.ConnectionInfoProvider queryOperator = (AppData.ConnectionInfoProvider)queryOperatorMeta.getOperator();
+                    queryOperatorName = queryOperatorMeta.getName();
+                    queryUrl = queryOperator.getAppDataURL();
+                    queryTopic = queryOperator.getTopic();
+                  } else {
+                    LOG.warn("An embeddable query connector and the {} query operator were discovered. The query operator will be ignored and the embeddable query connector will be used instead.",
+                        operatorMeta.getName());
+                  }
                 }
               } else {
                 LOG.warn("Multiple query ports found in operator {}. Ignoring the App Data Source.", operatorMeta.getName());
@@ -591,7 +693,7 @@ public class StreamingContainerManager implements PlanContext
 
           for (Map.Entry<LogicalPlan.OutputPortMeta, LogicalPlan.StreamMeta> entry : outputStreams.entrySet()) {
             LogicalPlan.OutputPortMeta portMeta = entry.getKey();
-            LOG.warn("DEBUG: looking at port {} {}", portMeta.getPortName(), Thread.currentThread().getId());
+            LOG.debug("Looking at port {} {}", portMeta.getPortName(), Thread.currentThread().getId());
 
             if (portMeta.isAppDataResultPort()) {
               AppDataSource appDataSource = new AppDataSource();
@@ -617,7 +719,7 @@ public class StreamingContainerManager implements PlanContext
               }
               OperatorMeta resultOperatorMeta = sinks.get(0).getOperatorWrapper();
               if (resultOperatorMeta.getOperator() instanceof AppData.ConnectionInfoProvider) {
-                AppData.ConnectionInfoProvider resultOperator = (AppData.ConnectionInfoProvider) resultOperatorMeta.getOperator();
+                AppData.ConnectionInfoProvider resultOperator = (AppData.ConnectionInfoProvider)resultOperatorMeta.getOperator();
                 appDataSource.setResultOperatorName(resultOperatorMeta.getName());
                 appDataSource.setResultTopic(resultOperator.getTopic());
                 appDataSource.setResultUrl(convertAppDataUrl(resultOperator.getAppDataURL()));
@@ -629,7 +731,7 @@ public class StreamingContainerManager implements PlanContext
                 LOG.warn("Result operator for the App Data Source {}.{} does not implement the right interface. Ignoring the App Data Source.", operatorMeta.getName(), portMeta.getPortName());
                 continue;
               }
-              LOG.warn("DEBUG: Adding appDataSource {} {}", appDataSource.getName(), Thread.currentThread().getId());
+              LOG.debug("Adding appDataSource {} {}", appDataSource.getName(), Thread.currentThread().getId());
               appDataSources.add(appDataSource);
             }
           }
@@ -664,8 +766,7 @@ public class StreamingContainerManager implements PlanContext
         }
         shutdownAllContainers(msg);
         this.forcedShutdown = true;
-      }
-      else {
+      } else {
         for (PTContainer c : pendingAllocation) {
           LOG.debug("Waiting for resource: {}m {}", c.getRequiredMemoryMB(), c);
         }
@@ -684,8 +785,7 @@ public class StreamingContainerManager implements PlanContext
             LOG.info("Container {}@{} startup timeout ({} ms).", c.getExternalId(), c.host, currentTms - sca.createdMillis);
             containerStopRequests.put(c.getExternalId(), c.getExternalId());
           }
-        }
-        else {
+        } else {
           if (currentTms - sca.lastHeartbeatMillis > this.vars.heartbeatTimeoutMillis) {
             if (!isApplicationIdle()) {
               // request stop (kill) as process may still be hanging around (would have been detected by Yarn otherwise)
@@ -712,8 +812,7 @@ public class StreamingContainerManager implements PlanContext
     try {
       statsRecorder.recordContainers(containers, currentTms);
       statsRecorder.recordOperators(getOperatorInfoList(), currentTms);
-    }
-    catch (Exception ex) {
+    } catch (Exception ex) {
       LOG.warn("Exception caught when recording stats", ex);
     }
   }
@@ -727,8 +826,8 @@ public class StreamingContainerManager implements PlanContext
         LOG.warn("Some operators are behind for more than {} windows! Trimming the end window stats map", this.vars.maxWindowsBehindForStats);
         while (endWindowStatsOperatorMap.size() > this.vars.maxWindowsBehindForStats) {
           LOG.debug("Removing incomplete end window stats for window id {}. Collected operator set: {}. Complete set: {}",
-            endWindowStatsOperatorMap.firstKey(),
-            endWindowStatsOperatorMap.get(endWindowStatsOperatorMap.firstKey()).keySet(), allCurrentOperators);
+              endWindowStatsOperatorMap.firstKey(),
+              endWindowStatsOperatorMap.get(endWindowStatsOperatorMap.firstKey()).keySet(), allCurrentOperators);
           endWindowStatsOperatorMap.remove(endWindowStatsOperatorMap.firstKey());
         }
       }
@@ -740,39 +839,21 @@ public class StreamingContainerManager implements PlanContext
         Set<Integer> endWindowStatsOperators = endWindowStatsMap.keySet();
 
         aggregateMetrics(windowId, endWindowStatsMap);
+        criticalPathInfo = findCriticalPath();
 
         if (allCurrentOperators.containsAll(endWindowStatsOperators)) {
           if (endWindowStatsMap.size() < numOperators) {
             if (windowId < completeEndWindowStatsWindowId) {
               LOG.debug("Disregarding stale end window stats for window {}", windowId);
               endWindowStatsOperatorMap.remove(windowId);
-            }
-            else {
+            } else {
               break;
             }
-          }
-          else {
-            // collected data from all operators for this window id.  start latency calculation
-            List<OperatorMeta> rootOperatorMetas = plan.getLogicalPlan().getRootOperators();
-            Set<PTOperator> endWindowStatsVisited = new HashSet<PTOperator>();
-            Set<PTOperator> leafOperators = new HashSet<PTOperator>();
-            for (OperatorMeta root : rootOperatorMetas) {
-              List<PTOperator> rootOperators = plan.getOperators(root);
-              for (PTOperator rootOperator : rootOperators) {
-                // DFS for visiting the operators for latency calculation
-                LOG.debug("Calculating latency starting from operator {}", rootOperator.getId());
-                calculateLatency(rootOperator, endWindowStatsMap, endWindowStatsVisited, leafOperators);
-              }
-            }
-            CriticalPathInfo cpi = new CriticalPathInfo();
-            //LOG.debug("Finding critical path...");
-            cpi.latency = findCriticalPath(endWindowStatsMap, leafOperators, cpi.path);
-            criticalPathInfo = cpi;
+          } else {
             endWindowStatsOperatorMap.remove(windowId);
             currentEndWindowStatsWindowId = windowId;
           }
-        }
-        else {
+        } else {
           // the old stats contains operators that do not exist any more
           // this is probably right after a partition happens.
           LOG.debug("Stats for non-existent operators detected. Disregarding end window stats for window {}", windowId);
@@ -788,6 +869,7 @@ public class StreamingContainerManager implements PlanContext
     Collection<OperatorMeta> logicalOperators = getLogicalPlan().getAllOperators();
     //for backward compatibility
     for (OperatorMeta operatorMeta : logicalOperators) {
+      @SuppressWarnings("deprecation")
       Context.CountersAggregator aggregator = operatorMeta.getValue(OperatorContext.COUNTERS_AGGREGATOR);
       if (aggregator == null) {
         continue;
@@ -801,6 +883,7 @@ public class StreamingContainerManager implements PlanContext
         }
       }
       if (counters.size() > 0) {
+        @SuppressWarnings("deprecation")
         Object aggregate = aggregator.aggregate(counters);
         latestLogicalCounters.put(operatorMeta.getName(), aggregate);
       }
@@ -808,7 +891,7 @@ public class StreamingContainerManager implements PlanContext
 
     for (OperatorMeta operatorMeta : logicalOperators) {
       AutoMetric.Aggregator aggregator = operatorMeta.getMetricAggregatorMeta() != null ?
-        operatorMeta.getMetricAggregatorMeta().getAggregator() : null;
+          operatorMeta.getMetricAggregatorMeta().getAggregator() : null;
       if (aggregator == null) {
         continue;
       }
@@ -822,6 +905,10 @@ public class StreamingContainerManager implements PlanContext
           metricPool.add(physicalMetrics);
         }
       }
+      if (metricPool.isEmpty()) {
+        //nothing to aggregate
+        continue;
+      }
       Map<String, Object> lm = aggregator.aggregate(windowId, metricPool);
 
       if (lm != null && lm.size() > 0) {
@@ -829,6 +916,8 @@ public class StreamingContainerManager implements PlanContext
         if (windowMetrics == null) {
           windowMetrics = new LinkedBlockingQueue<Pair<Long, Map<String, Object>>>(METRIC_QUEUE_SIZE)
           {
+            private static final long serialVersionUID = 1L;
+
             @Override
             public boolean add(Pair<Long, Map<String, Object>> longMapPair)
             {
@@ -841,7 +930,7 @@ public class StreamingContainerManager implements PlanContext
           logicalMetrics.put(operatorMeta.getName(), windowMetrics);
         }
         LOG.debug("Adding to logical metrics for {}", operatorMeta.getName());
-        windowMetrics.add(new Pair<Long, Map<String, Object>>(windowId, lm));
+        windowMetrics.add(new Pair<>(windowId, lm));
         Map<String, Object> oldValue = latestLogicalMetrics.put(operatorMeta.getName(), lm);
         if (oldValue == null) {
           try {
@@ -861,7 +950,8 @@ public class StreamingContainerManager implements PlanContext
   private void saveMetaInfo() throws IOException
   {
     Path file = new Path(this.vars.appPath, APP_META_FILENAME + "." + System.nanoTime());
-    try (FSDataOutputStream os = fileContext.create(file, EnumSet.of(CreateFlag.CREATE, CreateFlag.OVERWRITE), Options.CreateOpts.CreateParent.createParent())) {      JSONObject top = new JSONObject();
+    try (FSDataOutputStream os = fileContext.create(file, EnumSet.of(CreateFlag.CREATE, CreateFlag.OVERWRITE), Options.CreateOpts.CreateParent.createParent())) {
+      JSONObject top = new JSONObject();
       JSONObject attributes = new JSONObject();
       for (Map.Entry<Attribute<?>, Object> entry : this.plan.getLogicalPlan().getAttributes().entrySet()) {
         attributes.put(entry.getKey().getSimpleName(), entry.getValue());
@@ -885,106 +975,41 @@ public class StreamingContainerManager implements PlanContext
     return logicalMetrics.get(operatorName);
   }
 
-  private void calculateLatency(PTOperator oper, Map<Integer, EndWindowStats> endWindowStatsMap, Set<PTOperator> endWindowStatsVisited, Set<PTOperator> leafOperators)
+  private CriticalPathInfo findCriticalPath()
   {
-    endWindowStatsVisited.add(oper);
-    OperatorStatus operatorStatus = oper.stats;
-
-    EndWindowStats endWindowStats = endWindowStatsMap.get(oper.getId());
-    if (endWindowStats == null) {
-      LOG.info("End window stats is null for operator {}, probably a new operator after partitioning", oper);
-      return;
-    }
-
-    // find the maximum end window emit time from all input ports
-    long upstreamMaxEmitTimestamp = -1;
-    PTOperator upstreamMaxEmitTimestampOperator = null;
-    for (PTOperator.PTInput input : oper.getInputs()) {
-      if (null != input.source.source) {
-        PTOperator upstreamOp = input.source.source;
-        EndWindowStats upstreamEndWindowStats = endWindowStatsMap.get(upstreamOp.getId());
-        if (upstreamEndWindowStats == null) {
-          LOG.info("End window stats is null for operator {}", oper);
-          return;
-        }
-        long adjustedEndWindowEmitTimestamp = upstreamEndWindowStats.emitTimestamp;
-        MovingAverageLong rpcLatency = rpcLatencies.get(upstreamOp.getContainer().getExternalId());
-        if (rpcLatency != null) {
-          adjustedEndWindowEmitTimestamp += rpcLatency.getAvg();
-        }
-        if (adjustedEndWindowEmitTimestamp > upstreamMaxEmitTimestamp) {
-          upstreamMaxEmitTimestamp = adjustedEndWindowEmitTimestamp;
-          upstreamMaxEmitTimestampOperator = upstreamOp;
-        }
+    CriticalPathInfo result = null;
+    List<PTOperator> leafOperators = plan.getLeafOperators();
+    Map<PTOperator, CriticalPathInfo> cache = new HashMap<>();
+    for (PTOperator leafOperator : leafOperators) {
+      CriticalPathInfo cpi = findCriticalPathHelper(leafOperator, cache);
+      if (result == null || result.latency < cpi.latency) {
+        result = cpi;
       }
     }
-
-    if (upstreamMaxEmitTimestamp > 0) {
-      long adjustedEndWindowEmitTimestamp = endWindowStats.emitTimestamp;
-      MovingAverageLong rpcLatency = rpcLatencies.get(oper.getContainer().getExternalId());
-      if (rpcLatency != null) {
-        adjustedEndWindowEmitTimestamp += rpcLatency.getAvg();
-      }
-      if (upstreamMaxEmitTimestamp <= adjustedEndWindowEmitTimestamp) {
-        LOG.debug("Adding {} to latency MA for {}", adjustedEndWindowEmitTimestamp - upstreamMaxEmitTimestamp, oper);
-        operatorStatus.latencyMA.add(adjustedEndWindowEmitTimestamp - upstreamMaxEmitTimestamp);
-      } else {
-        operatorStatus.latencyMA.add(0);
-        if (lastLatencyWarningTime < System.currentTimeMillis() - LATENCY_WARNING_THRESHOLD_MILLIS) {
-          LOG.warn("Latency calculation for this operator may not be correct because upstream end window timestamp is greater than this operator's end window timestamp: {} ({}) > {} ({}). Please verify that the system clocks are in sync in your cluster. You can also try tweaking the RPC_LATENCY_COMPENSATION_SAMPLES application attribute (currently set to {}).",
-                  upstreamMaxEmitTimestamp, upstreamMaxEmitTimestampOperator, adjustedEndWindowEmitTimestamp, oper, this.vars.rpcLatencyCompensationSamples);
-          lastLatencyWarningTime = System.currentTimeMillis();
-        }
-      }
-    }
-
-    if (oper.getOutputs().isEmpty()) {
-      // it is a leaf operator
-      leafOperators.add(oper);
-    }
-    else {
-      for (PTOperator.PTOutput output : oper.getOutputs()) {
-        for (PTOperator.PTInput input : output.sinks) {
-          if (input.target != null) {
-            PTOperator downStreamOp = input.target;
-            if (!endWindowStatsVisited.contains(downStreamOp)) {
-              calculateLatency(downStreamOp, endWindowStatsMap, endWindowStatsVisited, leafOperators);
-            }
-          }
-        }
-      }
-    }
+    return result;
   }
-  /*
-   * returns cumulative latency
-   */
-  private long findCriticalPath(Map<Integer, EndWindowStats> endWindowStatsMap, Set<PTOperator> operators, LinkedList<Integer> criticalPath)
-  {
-    long maxEndWindowTimestamp = 0;
-    PTOperator maxOperator = null;
-    for (PTOperator operator : operators) {
-      EndWindowStats endWindowStats = endWindowStatsMap.get(operator.getId());
-      if (maxEndWindowTimestamp < endWindowStats.emitTimestamp) {
-        maxEndWindowTimestamp = endWindowStats.emitTimestamp;
-        maxOperator = operator;
-      }
-    }
-    if (maxOperator == null) {
-      return 0;
-    }
-    criticalPath.addFirst(maxOperator.getId());
-    OperatorStatus operatorStatus = maxOperator.stats;
 
-    operators.clear();
-    if (maxOperator.getInputs() == null || maxOperator.getInputs().isEmpty()) {
-      return operatorStatus.latencyMA.getAvg();
+  private CriticalPathInfo findCriticalPathHelper(PTOperator operator, Map<PTOperator, CriticalPathInfo> cache)
+  {
+    CriticalPathInfo cpi = cache.get(operator);
+    if (cpi != null) {
+      return cpi;
     }
-    for (PTOperator.PTInput input : maxOperator.getInputs()) {
-      if (null != input.source.source) {
-        operators.add(input.source.source);
+    PTOperator slowestUpstreamOperator = slowestUpstreamOp.get(operator);
+    if (slowestUpstreamOperator != null) {
+      cpi = findCriticalPathHelper(slowestUpstreamOperator, cache);
+      try {
+        cpi = (CriticalPathInfo)cpi.clone();
+      } catch (CloneNotSupportedException ex) {
+        throw new RuntimeException();
       }
+    } else {
+      cpi = new CriticalPathInfo();
     }
-    return operatorStatus.latencyMA.getAvg() + findCriticalPath(endWindowStatsMap, operators, criticalPath);
+    cpi.latency += operator.stats.getLatencyMA();
+    cpi.path.addLast(operator.getId());
+    cache.put(operator, cpi);
+    return cpi;
   }
 
   public int processEvents()
@@ -999,6 +1024,14 @@ public class StreamingContainerManager implements PlanContext
         }
       }
       o.stats.lastWindowedStats = stats;
+      o.stats.operatorResponses = null;
+      if (!o.stats.responses.isEmpty()) {
+        o.stats.operatorResponses = new ArrayList<>();
+        StatsListener.OperatorResponse operatorResponse;
+        while ((operatorResponse = o.stats.responses.poll()) != null) {
+          o.stats.operatorResponses.add(operatorResponse);
+        }
+      }
       if (o.stats.lastWindowedStats != null) {
         // call listeners only with non empty window list
         if (o.statsListeners != null) {
@@ -1013,10 +1046,7 @@ public class StreamingContainerManager implements PlanContext
         Iterator<Map.Entry<Long, Set<PTOperator>>> it = shutdownOperators.entrySet().iterator();
         while (it.hasNext()) {
           Map.Entry<Long, Set<PTOperator>> windowAndOpers = it.next();
-          if (windowAndOpers.getKey().longValue() > this.committedWindowId) {
-            // wait until window is committed
-            continue;
-          } else {
+          if (windowAndOpers.getKey().longValue() <= this.committedWindowId || checkDownStreamOperators(windowAndOpers)) {
             LOG.info("Removing inactive operators at window {} {}", Codec.getStringWindowId(windowAndOpers.getKey()), windowAndOpers.getValue());
             for (PTOperator oper : windowAndOpers.getValue()) {
               plan.removeTerminatedPartition(oper);
@@ -1043,8 +1073,7 @@ public class StreamingContainerManager implements PlanContext
       try {
         command.run();
         count++;
-      }
-      catch (Exception e) {
+      } catch (Exception e) {
         // TODO: handle error
         LOG.error("Failed to execute {}", command, e);
       }
@@ -1054,13 +1083,25 @@ public class StreamingContainerManager implements PlanContext
     if (count > 0) {
       try {
         checkpoint();
-      }
-      catch (Exception e) {
+      } catch (Exception e) {
         throw new RuntimeException("Failed to checkpoint state.", e);
       }
     }
 
     return count;
+  }
+
+  private boolean checkDownStreamOperators(Map.Entry<Long, Set<PTOperator>> windowAndOpers)
+  {
+    // Check if all downStream operators are at higher window Ids, then operator can be removed from dag
+    Set<PTOperator> downStreamOperators = getPhysicalPlan().getDependents(windowAndOpers.getValue());
+    for (PTOperator oper : downStreamOperators) {
+      long windowId = oper.stats.currentWindowId.get();
+      if (windowId < windowAndOpers.getKey().longValue()) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /**
@@ -1090,7 +1131,7 @@ public class StreamingContainerManager implements PlanContext
     cs.container.setAllocatedVCores(0);
 
     // resolve dependencies
-    UpdateCheckpointsContext ctx = new UpdateCheckpointsContext(clock);
+    UpdateCheckpointsContext ctx = new UpdateCheckpointsContext(clock, false, getCheckpointGroups());
     for (PTOperator oper : cs.container.getOperators()) {
       updateRecoveryCheckpoints(oper, ctx);
     }
@@ -1256,8 +1297,7 @@ public class StreamingContainerManager implements PlanContext
       scc.attributes.put(ContainerContext.BUFFER_SERVER_TOKEN, container.getBufferServerToken());
       scc.startWindowMillis = this.vars.windowStartMillis;
       return scc;
-    }
-    catch (CloneNotSupportedException ex) {
+    } catch (CloneNotSupportedException ex) {
       throw new RuntimeException("Cannot clone DAG attributes", ex);
     }
   }
@@ -1288,21 +1328,20 @@ public class StreamingContainerManager implements PlanContext
     switch (oper.getState()) {
       case ACTIVE:
         // Commented out the warning below because it's expected when the operator does something
-        // quickly and goes out of commission, it will report SHUTDOWN correcly whereas this code
+        // quickly and goes out of commission, it will report SHUTDOWN correctly whereas this code
         // is incorrectly expecting ACTIVE to be reported.
         //LOG.warn("status out of sync {} expected {} remote {}", oper, oper.getState(), ds);
         // operator expected active, check remote status
         if (ds == null) {
           sca.deployOpers.add(oper);
-        }
-        else {
+        } else {
           switch (ds) {
             case SHUTDOWN:
               // schedule operator deactivation against the windowId
               // will be processed once window is committed and all dependent operators completed processing
               long windowId = oper.stats.currentWindowId.get();
               if (ohb.windowStats != null && !ohb.windowStats.isEmpty()) {
-                windowId = ohb.windowStats.get(ohb.windowStats.size()-1).windowId;
+                windowId = ohb.windowStats.get(ohb.windowStats.size() - 1).windowId;
               }
               LOG.debug("Operator {} deactivated at window {}", oper, windowId);
               synchronized (this.shutdownOperators) {
@@ -1313,15 +1352,18 @@ public class StreamingContainerManager implements PlanContext
                 deactivatedOpers.add(oper);
               }
               sca.undeployOpers.add(oper.getId());
+              slowestUpstreamOp.remove(oper);
               // record operator stop event
               recordEventAsync(new StramEvent.StopOperatorEvent(oper.getName(), oper.getId(), oper.getContainer().getExternalId()));
               break;
             case FAILED:
               processOperatorFailure(oper);
               sca.undeployOpers.add(oper.getId());
+              slowestUpstreamOp.remove(oper);
               recordEventAsync(new StramEvent.StopOperatorEvent(oper.getName(), oper.getId(), oper.getContainer().getExternalId()));
               break;
             case ACTIVE:
+            default:
               break;
           }
         }
@@ -1332,18 +1374,17 @@ public class StreamingContainerManager implements PlanContext
           recordEventAsync(new StramEvent.StopOperatorEvent(oper.getName(), oper.getId(), oper.getContainer().getExternalId()));
           oper.setState(State.PENDING_DEPLOY);
           sca.deployOpers.add(oper);
-        }
-        else {
+        } else {
           // operator is currently deployed, request undeploy
           sca.undeployOpers.add(oper.getId());
+          slowestUpstreamOp.remove(oper);
         }
         break;
       case PENDING_DEPLOY:
         if (ds == null) {
           // operator to be deployed
           sca.deployOpers.add(oper);
-        }
-        else {
+        } else {
           // operator was deployed in container
           PTContainer container = oper.getContainer();
           LOG.debug("{} marking deployed: {} remote status {}", container.getExternalId(), oper, ds);
@@ -1358,6 +1399,7 @@ public class StreamingContainerManager implements PlanContext
         if (ds != null) {
           // operator was removed and needs to be undeployed from container
           sca.undeployOpers.add(oper.getId());
+          slowestUpstreamOp.remove(oper);
           recordEventAsync(new StramEvent.StopOperatorEvent(oper.getName(), oper.getId(), oper.getContainer().getExternalId()));
         }
     }
@@ -1379,15 +1421,13 @@ public class StreamingContainerManager implements PlanContext
         // existing container or sandbox container for just the operator
         LOG.error("Initiating container restart after operator failure {}", oper);
         containerStopRequests.put(oper.getContainer().getExternalId(), oper.getContainer().getExternalId());
-      }
-      else {
+      } else {
         String msg = String.format("Shutdown after reaching failure threshold for %s", oper);
         LOG.warn(msg);
         shutdownAllContainers(msg);
         forcedShutdown = true;
       }
-    }
-    else {
+    } else {
       // should not get here
       LOG.warn("Failed operator {} {} {} to be undeployed by container", oper, oper.getState());
     }
@@ -1468,8 +1508,6 @@ public class StreamingContainerManager implements PlanContext
     }
     Set<Integer> reportedOperators = Sets.newHashSetWithExpectedSize(sca.container.getOperators().size());
 
-    boolean containerIdle = true;
-
     for (OperatorHeartbeat shb : heartbeat.getContainerStats().operators) {
 
       long maxEndWindowTimestamp = 0;
@@ -1486,14 +1524,11 @@ public class StreamingContainerManager implements PlanContext
       if (shb.requestResponse != null) {
         for (StatsListener.OperatorResponse obj : shb.requestResponse) {
           if (obj instanceof OperatorResponse) {      // This is to identify platform requests
-            commandResponse.put((Long) obj.getResponseId(), obj.getResponse());
+            commandResponse.put((Long)obj.getResponseId(), obj.getResponse());
             LOG.debug(" Got back the response {} for the request {}", obj, obj.getResponseId());
-          }
-          else {       // This is to identify user requests
-            if (oper.stats.operatorResponses == null) {
-              oper.stats.operatorResponses = new ArrayList<StatsListener.OperatorResponse>();
-            }
-            oper.stats.operatorResponses.add(obj);
+          } else {
+            // This is to identify user requests
+            oper.stats.responses.add(obj);
           }
         }
       }
@@ -1506,9 +1541,7 @@ public class StreamingContainerManager implements PlanContext
 
       oper.stats.lastHeartbeat = shb;
       List<ContainerStats.OperatorStats> statsList = shb.getOperatorStatsContainer();
-      if (!oper.stats.isIdle()) {
-        containerIdle = false;
-      }
+
       if (!statsList.isEmpty()) {
         long tuplesProcessed = 0;
         long tuplesEmitted = 0;
@@ -1527,11 +1560,15 @@ public class StreamingContainerManager implements PlanContext
           entry.getValue().recordingId = null;
         }
         for (ContainerStats.OperatorStats stats : statsList) {
+          if (stats == null) {
+            LOG.warn("Operator {} statistics list contains null element", shb.getNodeId());
+            continue;
+          }
 
           /* report checkpoint-ed WindowId status of the operator */
           if (stats.checkpoint instanceof Checkpoint) {
             if (oper.getRecentCheckpoint() == null || oper.getRecentCheckpoint().windowId < stats.checkpoint.getWindowId()) {
-              addCheckpoint(oper, (Checkpoint) stats.checkpoint);
+              addCheckpoint(oper, (Checkpoint)stats.checkpoint);
               if (stats.checkpointStats != null) {
                 status.checkpointStats = stats.checkpointStats;
                 status.checkpointTimeMA.add(stats.checkpointStats.checkpointTime);
@@ -1563,8 +1600,11 @@ public class StreamingContainerManager implements PlanContext
               tuplesProcessed += s.tupleCount;
               endWindowStats.dequeueTimestamps.put(s.id, s.endWindowTimestamp);
 
-              Pair<Integer, String> operatorPortName = new Pair<Integer, String>(oper.getId(), s.id);
-              long lastEndWindowTimestamp = operatorPortLastEndWindowTimestamps.containsKey(operatorPortName) ? operatorPortLastEndWindowTimestamps.get(operatorPortName) : lastStatsTimestamp;
+              Pair<Integer, String> operatorPortName = new Pair<>(oper.getId(), s.id);
+              Long lastEndWindowTimestamp = operatorPortLastEndWindowTimestamps.get(operatorPortName);
+              if (lastEndWindowTimestamp == null) {
+                lastEndWindowTimestamp = lastStatsTimestamp;
+              }
               long portElapsedMillis = Math.max(s.endWindowTimestamp - lastEndWindowTimestamp, 0);
               //LOG.debug("=== PROCESSED TUPLE COUNT for {}: {}, {}, {}, {}", operatorPortName, s.tupleCount, portElapsedMillis, operatorPortLastEndWindowTimestamps.get(operatorPortName), lastStatsTimestamp);
               ps.tuplesPMSMA.add(s.tupleCount, portElapsedMillis);
@@ -1604,13 +1644,16 @@ public class StreamingContainerManager implements PlanContext
               ps.recordingId = s.recordingId;
 
               tuplesEmitted += s.tupleCount;
-              Pair<Integer, String> operatorPortName = new Pair<Integer, String>(oper.getId(), s.id);
-
-              long lastEndWindowTimestamp = operatorPortLastEndWindowTimestamps.containsKey(operatorPortName) ? operatorPortLastEndWindowTimestamps.get(operatorPortName) : lastStatsTimestamp;
+              Pair<Integer, String> operatorPortName = new Pair<>(oper.getId(), s.id);
+              Long lastEndWindowTimestamp = operatorPortLastEndWindowTimestamps.get(operatorPortName);
+              if (lastEndWindowTimestamp == null) {
+                lastEndWindowTimestamp = lastStatsTimestamp;
+              }
               long portElapsedMillis = Math.max(s.endWindowTimestamp - lastEndWindowTimestamp, 0);
               //LOG.debug("=== EMITTED TUPLE COUNT for {}: {}, {}, {}, {}", operatorPortName, s.tupleCount, portElapsedMillis, operatorPortLastEndWindowTimestamps.get(operatorPortName), lastStatsTimestamp);
               ps.tuplesPMSMA.add(s.tupleCount, portElapsedMillis);
               ps.bufferServerBytesPMSMA.add(s.bufferServerBytes, portElapsedMillis);
+
               operatorPortLastEndWindowTimestamps.put(operatorPortName, s.endWindowTimestamp);
               if (maxEndWindowTimestamp < s.endWindowTimestamp) {
                 maxEndWindowTimestamp = s.endWindowTimestamp;
@@ -1646,17 +1689,60 @@ public class StreamingContainerManager implements PlanContext
             endWindowStats.counters = stats.counters;
           }
           if (oper.getOperatorMeta().getMetricAggregatorMeta() != null &&
-            oper.getOperatorMeta().getMetricAggregatorMeta().getAggregator() != null) {
+              oper.getOperatorMeta().getMetricAggregatorMeta().getAggregator() != null) {
             endWindowStats.metrics = stats.metrics;
           }
 
           if (stats.windowId > currentEndWindowStatsWindowId) {
             Map<Integer, EndWindowStats> endWindowStatsMap = endWindowStatsOperatorMap.get(stats.windowId);
             if (endWindowStatsMap == null) {
-              endWindowStatsOperatorMap.putIfAbsent(stats.windowId, new ConcurrentSkipListMap<Integer, EndWindowStats>());
-              endWindowStatsMap = endWindowStatsOperatorMap.get(stats.windowId);
+              endWindowStatsMap = new ConcurrentSkipListMap<>();
+              Map<Integer, EndWindowStats> endWindowStatsMapPrevious =
+                  endWindowStatsOperatorMap.putIfAbsent(stats.windowId, endWindowStatsMap);
+              if (endWindowStatsMapPrevious != null) {
+                endWindowStatsMap = endWindowStatsMapPrevious;
+              }
             }
             endWindowStatsMap.put(shb.getNodeId(), endWindowStats);
+
+            if (!oper.getInputs().isEmpty()) {
+              long latency = Long.MAX_VALUE;
+              long adjustedEndWindowEmitTimestamp = endWindowStats.emitTimestamp;
+              MovingAverageLong rpcLatency = rpcLatencies.get(oper.getContainer().getExternalId());
+              if (rpcLatency != null) {
+                adjustedEndWindowEmitTimestamp += rpcLatency.getAvg();
+              }
+              PTOperator slowestUpstream = null;
+              for (PTInput input : oper.getInputs()) {
+                PTOperator upstreamOp = input.source.source;
+                if (upstreamOp.getOperatorMeta().getOperator() instanceof Operator.DelayOperator) {
+                  continue;
+                }
+                EndWindowStats ews = endWindowStatsMap.get(upstreamOp.getId());
+                long portLatency;
+                if (ews == null) {
+                  // This is when the operator is likely to be behind too many windows. We need to give an estimate for
+                  // latency at this point, by looking at the number of windows behind
+                  int widthMillis = plan.getLogicalPlan().getValue(LogicalPlan.STREAMING_WINDOW_SIZE_MILLIS);
+                  portLatency = (upstreamOp.stats.currentWindowId.get() - oper.stats.currentWindowId.get()) * widthMillis;
+                } else {
+                  MovingAverageLong upstreamRPCLatency = rpcLatencies.get(upstreamOp.getContainer().getExternalId());
+                  portLatency = adjustedEndWindowEmitTimestamp - ews.emitTimestamp;
+                  if (upstreamRPCLatency != null) {
+                    portLatency -= upstreamRPCLatency.getAvg();
+                  }
+                }
+                if (portLatency < 0) {
+                  portLatency = 0;
+                }
+                if (latency > portLatency) {
+                  latency = portLatency;
+                  slowestUpstream = upstreamOp;
+                }
+              }
+              status.latencyMA.add(latency);
+              slowestUpstreamOp.put(oper, slowestUpstream);
+            }
 
             Set<Integer> allCurrentOperators = plan.getAllOperators().keySet();
             int numOperators = plan.getAllOperators().size();
@@ -1691,9 +1777,9 @@ public class StreamingContainerManager implements PlanContext
           }
           status.tuplesProcessedPSMA.set(Math.round(tuplesProcessedPMSMA * 1000));
           status.tuplesEmittedPSMA.set(Math.round(tuplesEmittedPMSMA * 1000));
-        }
-        else {
-          //LOG.warn("This timestamp for {} is lower than the previous!! {} < {}", oper.getId(), maxEndWindowTimestamp, lastMaxEndWindowTimestamp);
+        } else {
+          //LOG.warn("This timestamp for {} is lower than the previous!! {} < {}", oper.getId(),
+          // maxEndWindowTimestamp, lastMaxEndWindowTimestamp);
         }
         operatorLastEndWindowTimestamps.put(oper.getId(), maxEndWindowTimestamp);
         status.listenerStats.add(statsList);
@@ -1716,11 +1802,10 @@ public class StreamingContainerManager implements PlanContext
 
     ContainerHeartbeatResponse rsp = getHeartbeatResponse(sca);
 
-    if (containerIdle && isApplicationIdle()) {
+    if (heartbeat.getContainerStats().operators.isEmpty() && isApplicationIdle()) {
       LOG.info("requesting idle shutdown for container {}", heartbeat.getContainerId());
       rsp.shutdown = true;
-    }
-    else {
+    } else {
       if (sca.shutdownRequested) {
         LOG.info("requesting shutdown for container {}", heartbeat.getContainerId());
         rsp.shutdown = true;
@@ -1826,13 +1911,11 @@ public class StreamingContainerManager implements PlanContext
             if (li.previous().windowId != checkpoint.windowId) {
               li.add(checkpoint);
             }
-          }
-          else {
+          } else {
             node.checkpoints.add(checkpoint);
           }
         }
-      }
-      else {
+      } else {
         node.checkpoints.add(checkpoint);
       }
     }
@@ -1841,23 +1924,23 @@ public class StreamingContainerManager implements PlanContext
   public static class UpdateCheckpointsContext
   {
     public final MutableLong committedWindowId = new MutableLong(Long.MAX_VALUE);
-    public final Set<PTOperator> visited = new LinkedHashSet<PTOperator>();
-    public final Set<PTOperator> blocked = new LinkedHashSet<PTOperator>();
+    public final Set<PTOperator> visited = new LinkedHashSet<>();
+    public final Set<PTOperator> blocked = new LinkedHashSet<>();
     public final long currentTms;
     public final boolean recovery;
+    public final Map<OperatorMeta, Set<OperatorMeta>> checkpointGroups;
 
     public UpdateCheckpointsContext(Clock clock)
     {
-      this.currentTms = clock.getTime();
-      this.recovery = false;
+      this(clock, false, Collections.<OperatorMeta, Set<OperatorMeta>>emptyMap());
     }
 
-    public UpdateCheckpointsContext(Clock clock, boolean recovery)
+    public UpdateCheckpointsContext(Clock clock, boolean recovery, Map<OperatorMeta, Set<OperatorMeta>> checkpointGroups)
     {
       this.currentTms = clock.getTime();
       this.recovery = recovery;
+      this.checkpointGroups = checkpointGroups;
     }
-
   }
 
   /**
@@ -1874,72 +1957,129 @@ public class StreamingContainerManager implements PlanContext
       ctx.committedWindowId.setValue(operator.getRecoveryCheckpoint().windowId);
     }
 
-    if (operator.getState() == PTOperator.State.ACTIVE && (ctx.currentTms - operator.stats.lastWindowIdChangeTms) > operator.stats.windowProcessingTimeoutMillis) {
+    if (operator.getState() == PTOperator.State.ACTIVE &&
+        (ctx.currentTms - operator.stats.lastWindowIdChangeTms) > operator.stats.windowProcessingTimeoutMillis) {
       // if the checkpoint is ahead, then it is not blocked but waiting for activation (state-less recovery, at-most-once)
       if (ctx.committedWindowId.longValue() >= operator.getRecoveryCheckpoint().windowId) {
+        LOG.warn("Marking operator {} blocked committed window {}, recovery window {}, current time {}, last window id change time {}, window processing timeout millis {}",
+            operator,
+            Codec.getStringWindowId(ctx.committedWindowId.longValue()),
+            Codec.getStringWindowId(operator.getRecoveryCheckpoint().windowId),
+            ctx.currentTms,
+            operator.stats.lastWindowIdChangeTms,
+            operator.stats.windowProcessingTimeoutMillis);
         ctx.blocked.add(operator);
       }
     }
 
-    long maxCheckpoint = operator.getRecentCheckpoint().windowId;
-    if (ctx.recovery && maxCheckpoint == Stateless.WINDOW_ID && operator.isOperatorStateLess()) {
-      long currentWindowId = WindowGenerator.getWindowId(ctx.currentTms, this.vars.windowStartMillis, this.getLogicalPlan().getValue(LogicalPlan.STREAMING_WINDOW_SIZE_MILLIS));
-      maxCheckpoint = currentWindowId;
+    // the most recent checkpoint eligible for recovery based on downstream state
+    Checkpoint maxCheckpoint = Checkpoint.INITIAL_CHECKPOINT;
+
+    Set<OperatorMeta> checkpointGroup = ctx.checkpointGroups.get(operator.getOperatorMeta());
+    if (checkpointGroup == null) {
+      checkpointGroup = Collections.singleton(operator.getOperatorMeta());
+    }
+    // find intersection of checkpoints that group can collectively move to
+    TreeSet<Checkpoint> commonCheckpoints = new TreeSet<>(new Checkpoint.CheckpointComparator());
+    synchronized (operator.checkpoints) {
+      commonCheckpoints.addAll(operator.checkpoints);
+    }
+    Set<PTOperator> groupOpers = new HashSet<>(checkpointGroup.size());
+    boolean pendingDeploy = operator.getState() == PTOperator.State.PENDING_DEPLOY;
+    if (checkpointGroup.size() > 1) {
+      for (OperatorMeta om : checkpointGroup) {
+        Collection<PTOperator> operators = plan.getAllOperators(om);
+        for (PTOperator groupOper : operators) {
+          synchronized (groupOper.checkpoints) {
+            commonCheckpoints.retainAll(groupOper.checkpoints);
+          }
+          // visit all downstream operators of the group
+          ctx.visited.add(groupOper);
+          groupOpers.add(groupOper);
+          pendingDeploy |= operator.getState() == PTOperator.State.PENDING_DEPLOY;
+        }
+      }
+      // highest common checkpoint
+      if (!commonCheckpoints.isEmpty()) {
+        maxCheckpoint = commonCheckpoints.last();
+      }
+    } else {
+      // without logical grouping, treat partitions as independent
+      // this is especially important for parallel partitioning
+      ctx.visited.add(operator);
+      groupOpers.add(operator);
+      maxCheckpoint = operator.getRecentCheckpoint();
+      if (ctx.recovery && maxCheckpoint.windowId == Stateless.WINDOW_ID && operator.isOperatorStateLess()) {
+        long currentWindowId = WindowGenerator.getWindowId(ctx.currentTms, this.vars.windowStartMillis, this.getLogicalPlan().getValue(LogicalPlan.STREAMING_WINDOW_SIZE_MILLIS));
+        maxCheckpoint = new Checkpoint(currentWindowId, 0, 0);
+      }
     }
 
     // DFS downstream operators
-    for (PTOperator.PTOutput out : operator.getOutputs()) {
-      for (PTOperator.PTInput sink : out.sinks) {
-        PTOperator sinkOperator = sink.target;
-        if (!ctx.visited.contains(sinkOperator)) {
-          // downstream traversal
-          updateRecoveryCheckpoints(sinkOperator, ctx);
-        }
-        // recovery window id cannot move backwards
-        // when dynamically adding new operators
-        if (sinkOperator.getRecoveryCheckpoint().windowId >= operator.getRecoveryCheckpoint().windowId) {
-          maxCheckpoint = Math.min(maxCheckpoint, sinkOperator.getRecoveryCheckpoint().windowId);
-        }
+    for (PTOperator groupOper : groupOpers) {
+      for (PTOperator.PTOutput out : groupOper.getOutputs()) {
+        for (PTOperator.PTInput sink : out.sinks) {
+          PTOperator sinkOperator = sink.target;
+          if (groupOpers.contains(sinkOperator)) {
+            continue; // downstream operator within group
+          }
+          if (!ctx.visited.contains(sinkOperator)) {
+            // downstream traversal
+            updateRecoveryCheckpoints(sinkOperator, ctx);
+          }
+          // recovery window id cannot move backwards
+          // when dynamically adding new operators
+          if (sinkOperator.getRecoveryCheckpoint().windowId >= operator.getRecoveryCheckpoint().windowId) {
+            maxCheckpoint = Checkpoint.min(maxCheckpoint, sinkOperator.getRecoveryCheckpoint());
+          }
 
-        if (ctx.blocked.contains(sinkOperator)) {
-          if (sinkOperator.stats.getCurrentWindowId() == operator.stats.getCurrentWindowId()) {
-            // downstream operator is blocked by this operator
-            ctx.blocked.remove(sinkOperator);
+          if (ctx.blocked.contains(sinkOperator)) {
+            if (sinkOperator.stats.getCurrentWindowId() == operator.stats.getCurrentWindowId()) {
+              // downstream operator is blocked by this operator
+              ctx.blocked.remove(sinkOperator);
+            }
           }
         }
       }
     }
 
-    // checkpoint frozen during deployment
-    if (ctx.recovery || operator.getState() != PTOperator.State.PENDING_DEPLOY) {
-      // remove previous checkpoints
-      Checkpoint c1 = Checkpoint.INITIAL_CHECKPOINT;
-      synchronized (operator.checkpoints) {
-        if (!operator.checkpoints.isEmpty() && (operator.checkpoints.getFirst()).windowId <= maxCheckpoint) {
-          c1 = operator.checkpoints.getFirst();
-          Checkpoint c2;
-          while (operator.checkpoints.size() > 1 && ((c2 = operator.checkpoints.get(1)).windowId) <= maxCheckpoint) {
-            operator.checkpoints.removeFirst();
-            //LOG.debug("Checkpoint to delete: operator={} windowId={}", operator.getName(), c1);
-            this.purgeCheckpoints.add(new Pair<PTOperator, Long>(operator, c1.windowId));
-            c1 = c2;
-          }
-        }
-        else {
-          if (ctx.recovery && operator.checkpoints.isEmpty() && operator.isOperatorStateLess()) {
-            LOG.debug("Adding checkpoint for stateless operator {} {}", operator, Codec.getStringWindowId(maxCheckpoint));
-            c1 = operator.addCheckpoint(maxCheckpoint, this.vars.windowStartMillis);
-          }
-        }
+    // find the common checkpoint that is <= downstream recovery checkpoint
+    if (!commonCheckpoints.contains(maxCheckpoint)) {
+      if (!commonCheckpoints.isEmpty()) {
+        maxCheckpoint = Objects.firstNonNull(commonCheckpoints.floor(maxCheckpoint), maxCheckpoint);
       }
-      //LOG.debug("Operator {} checkpoints: commit {} recent {}", new Object[] {operator.getName(), c1, operator.checkpoints});
-      operator.setRecoveryCheckpoint(c1);
-    }
-    else {
-      LOG.debug("Skipping checkpoint update {} during {}", operator, operator.getState());
     }
 
-    ctx.visited.add(operator);
+    for (PTOperator groupOper : groupOpers) {
+      // checkpoint frozen during deployment
+      if (!pendingDeploy || ctx.recovery) {
+        // remove previous checkpoints
+        Checkpoint c1 = Checkpoint.INITIAL_CHECKPOINT;
+        LinkedList<Checkpoint> checkpoints = groupOper.checkpoints;
+        synchronized (checkpoints) {
+          if (!checkpoints.isEmpty() && (checkpoints.getFirst()).windowId <= maxCheckpoint.windowId) {
+            c1 = checkpoints.getFirst();
+            Checkpoint c2;
+            while (checkpoints.size() > 1 && ((c2 = checkpoints.get(1)).windowId) <= maxCheckpoint.windowId) {
+              checkpoints.removeFirst();
+              //LOG.debug("Checkpoint to delete: operator={} windowId={}", operator.getName(), c1);
+              this.purgeCheckpoints.add(new Pair<>(groupOper, c1.windowId));
+              c1 = c2;
+            }
+          } else {
+            if (ctx.recovery && checkpoints.isEmpty() && groupOper.isOperatorStateLess()) {
+              LOG.debug("Adding checkpoint for stateless operator {} {}", groupOper, Codec.getStringWindowId(maxCheckpoint.windowId));
+              c1 = groupOper.addCheckpoint(maxCheckpoint.windowId, this.vars.windowStartMillis);
+            }
+          }
+        }
+        //LOG.debug("Operator {} checkpoints: commit {} recent {}", new Object[] {operator.getName(), c1, operator.checkpoints});
+        groupOper.setRecoveryCheckpoint(c1);
+      } else {
+        LOG.debug("Skipping checkpoint update {} during {}", groupOper, groupOper.getState());
+      }
+    }
+
   }
 
   public long windowIdToMillis(long windowId)
@@ -1953,13 +2093,32 @@ public class StreamingContainerManager implements PlanContext
     return this.vars.windowStartMillis;
   }
 
+  private Map<OperatorMeta, Set<OperatorMeta>> getCheckpointGroups()
+  {
+    if (this.checkpointGroups == null) {
+      this.checkpointGroups = new HashMap<>();
+      LogicalPlan dag = this.plan.getLogicalPlan();
+      dag.resetNIndex();
+      LogicalPlan.ValidationContext vc = new LogicalPlan.ValidationContext();
+      for (OperatorMeta om : dag.getRootOperators()) {
+        this.plan.getLogicalPlan().findStronglyConnected(om, vc);
+      }
+      for (Set<OperatorMeta> checkpointGroup : vc.stronglyConnected) {
+        for (OperatorMeta om : checkpointGroup) {
+          this.checkpointGroups.put(om, checkpointGroup);
+        }
+      }
+    }
+    return checkpointGroups;
+  }
+
   /**
    * Visit all operators to update current checkpoint based on updated downstream state.
    * Purge older checkpoints that are no longer needed.
    */
   private long updateCheckpoints(boolean recovery)
   {
-    UpdateCheckpointsContext ctx = new UpdateCheckpointsContext(clock, recovery);
+    UpdateCheckpointsContext ctx = new UpdateCheckpointsContext(clock, recovery, getCheckpointGroups());
     for (OperatorMeta logicalOperator : plan.getLogicalPlan().getRootOperators()) {
       //LOG.debug("Updating checkpoints for operator {}", logicalOperator.getName());
       List<PTOperator> operators = plan.getOperators(logicalOperator);
@@ -2003,8 +2162,7 @@ public class StreamingContainerManager implements PlanContext
           {
             try {
               operator.getOperatorMeta().getValue(OperatorContext.STORAGE_AGENT).delete(operator.getId(), windowId);
-            }
-            catch (IOException ex) {
+            } catch (IOException ex) {
               LOG.error("Failed to purge checkpoint for operator {} for windowId {}", operator, windowId, ex);
             }
           }
@@ -2018,7 +2176,7 @@ public class StreamingContainerManager implements PlanContext
             // address should be null only for a new container, in which case there should not be a purge request
             // TODO: logging added to find out how we got here
             LOG.warn("purge request w/o buffer server address source {} container {} checkpoints {}",
-              out, operator.getContainer(), operator.checkpoints);
+                out, operator.getContainer(), operator.checkpoints);
             continue;
           }
 
@@ -2031,8 +2189,7 @@ public class StreamingContainerManager implements PlanContext
             BufferServerController bsc = getBufferServerClient(operator);
             try {
               bsc.purge(null, sourceIdentifier, operator.checkpoints.getFirst().windowId - 1);
-            }
-            catch (RuntimeException re) {
+            } catch (RuntimeException re) {
               LOG.warn("Failed to purge {} {}", bsc.addr, sourceIdentifier, re);
             }
           }
@@ -2061,11 +2218,11 @@ public class StreamingContainerManager implements PlanContext
 
   private Map<PTContainer, List<PTOperator>> groupByContainer(Collection<PTOperator> operators)
   {
-    Map<PTContainer, List<PTOperator>> m = new HashMap<PTContainer, List<PTOperator>>();
+    Map<PTContainer, List<PTOperator>> m = new HashMap<>();
     for (PTOperator node : operators) {
       List<PTOperator> nodes = m.get(node.getContainer());
       if (nodes == null) {
-        nodes = new ArrayList<PTOperator>();
+        nodes = new ArrayList<>();
         m.put(node.getContainer(), nodes);
       }
       nodes.add(node);
@@ -2132,8 +2289,7 @@ public class StreamingContainerManager implements PlanContext
                       // ensures new subscriber starting to read from checkpoint will wait until publisher redeploy cycle is complete
                       try {
                         bsc.reset(null, sourceIdentifier, 0);
-                      }
-                      catch (Exception ex) {
+                      } catch (Exception ex) {
                         LOG.error("Failed to reset buffer server {} {}", sourceIdentifier, ex);
                       }
                     }
@@ -2168,8 +2324,7 @@ public class StreamingContainerManager implements PlanContext
         }
       }
 
-    }
-    finally {
+    } finally {
       this.deployChangeCnt++;
       this.deployChangeInProgress.set(false);
     }
@@ -2197,7 +2352,7 @@ public class StreamingContainerManager implements PlanContext
 
   public List<OperatorInfo> getOperatorInfoList()
   {
-    List<OperatorInfo> infoList = new ArrayList<OperatorInfo>();
+    List<OperatorInfo> infoList = new ArrayList<>();
 
     for (PTContainer container : this.plan.getContainers()) {
       for (PTOperator operator : container.getOperators()) {
@@ -2216,9 +2371,28 @@ public class StreamingContainerManager implements PlanContext
     return fillLogicalOperatorInfo(operatorMeta);
   }
 
+  public ModuleMeta getModuleMeta(String moduleName)
+  {
+    return getModuleMeta(moduleName, getLogicalPlan());
+  }
+
+  private ModuleMeta getModuleMeta(String moduleName, LogicalPlan dag)
+  {
+    for (ModuleMeta m : dag.getAllModules()) {
+      if (m.getFullName().equals(moduleName)) {
+        return m;
+      }
+      ModuleMeta res = getModuleMeta(moduleName, m.getDag());
+      if (res != null) {
+        return res;
+      }
+    }
+    return null;
+  }
+
   public List<LogicalOperatorInfo> getLogicalOperatorInfoList()
   {
-    List<LogicalOperatorInfo> infoList = new ArrayList<LogicalOperatorInfo>();
+    List<LogicalOperatorInfo> infoList = new ArrayList<>();
     Collection<OperatorMeta> allOperators = getLogicalPlan().getAllOperators();
     for (OperatorMeta operatorMeta : allOperators) {
       infoList.add(fillLogicalOperatorInfo(operatorMeta));
@@ -2315,19 +2489,18 @@ public class StreamingContainerManager implements PlanContext
     loi.totalTuplesEmitted = operator.getStatus().totalTuplesEmitted;
     loi.totalTuplesProcessed = operator.getStatus().totalTuplesProcessed;
     loi.failureCount = operator.getStatus().failureCount;
-    loi.status = new HashMap<String, MutableInt>();
-    loi.partitions = new TreeSet<Integer>();
-    loi.unifiers = new TreeSet<Integer>();
-    loi.containerIds = new TreeSet<String>();
-    loi.hosts = new TreeSet<String>();
+    loi.status = new HashMap<>();
+    loi.partitions = new TreeSet<>();
+    loi.unifiers = new TreeSet<>();
+    loi.containerIds = new TreeSet<>();
+    loi.hosts = new TreeSet<>();
     Collection<PTOperator> physicalOperators = getPhysicalPlan().getAllOperators(operator);
     NumberAggregate.LongAggregate checkpointTimeAggregate = new NumberAggregate.LongAggregate();
     for (PTOperator physicalOperator : physicalOperators) {
       OperatorStatus os = physicalOperator.stats;
       if (physicalOperator.isUnifier()) {
         loi.unifiers.add(physicalOperator.getId());
-      }
-      else {
+      } else {
         loi.partitions.add(physicalOperator.getId());
 
         // exclude unifier, not sure if we should include it in the future
@@ -2370,9 +2543,12 @@ public class StreamingContainerManager implements PlanContext
         }
       }
     }
-    loi.checkpointTimeMA = checkpointTimeAggregate.getAvg().longValue();
-    loi.counters = latestLogicalCounters.get(operator.getName());
-    loi.autoMetrics = latestLogicalMetrics.get(operator.getName());
+    if (physicalOperators.size() > 0 && checkpointTimeAggregate.getAvg() != null) {
+      loi.checkpointTimeMA = checkpointTimeAggregate.getAvg().longValue();
+      loi.counters = latestLogicalCounters.get(operator.getName());
+      loi.autoMetrics = latestLogicalMetrics.get(operator.getName());
+    }
+
     return loi;
   }
 
@@ -2423,7 +2599,7 @@ public class StreamingContainerManager implements PlanContext
 
   public List<StreamInfo> getStreamInfoList()
   {
-    List<StreamInfo> infoList = new ArrayList<StreamInfo>();
+    List<StreamInfo> infoList = new ArrayList<>();
 
     for (PTContainer container : this.plan.getContainers()) {
       for (PTOperator operator : container.getOperators()) {
@@ -2439,8 +2615,7 @@ public class StreamingContainerManager implements PlanContext
             p.operatorId = String.valueOf(input.target.getId());
             if (input.target.isUnifier()) {
               p.portName = StreamingContainer.getUnifierInputPortName(input.portName, operator.getId(), output.portName);
-            }
-            else {
+            } else {
               p.portName = input.portName;
             }
             si.sinks.add(p);
@@ -2454,7 +2629,7 @@ public class StreamingContainerManager implements PlanContext
 
   private static class RecordingRequestFilter implements Predicate<StramToNodeRequest>
   {
-    final static Set<StramToNodeRequest.RequestType> MATCH_TYPES = Sets.newHashSet(StramToNodeRequest.RequestType.START_RECORDING, StramToNodeRequest.RequestType.STOP_RECORDING, StramToNodeRequest.RequestType.SYNC_RECORDING);
+    static final Set<StramToNodeRequest.RequestType> MATCH_TYPES = Sets.newHashSet(StramToNodeRequest.RequestType.START_RECORDING, StramToNodeRequest.RequestType.STOP_RECORDING, StramToNodeRequest.RequestType.SYNC_RECORDING);
 
     @Override
     public boolean apply(@Nullable StramToNodeRequest input)
@@ -2490,7 +2665,7 @@ public class StreamingContainerManager implements PlanContext
   private void updateOnDeployRequests(PTOperator p, Predicate<StramToNodeRequest> superseded, StramToNodeRequest newRequest)
   {
     // filter existing requests
-    List<StramToNodeRequest> cloneRequests = new ArrayList<StramToNodeRequest>(p.deployRequests.size());
+    List<StramToNodeRequest> cloneRequests = new ArrayList<>(p.deployRequests.size());
     for (StramToNodeRequest existingRequest : p.deployRequests) {
       if (!superseded.apply(existingRequest)) {
         cloneRequests.add(existingRequest);
@@ -2566,11 +2741,13 @@ public class StreamingContainerManager implements PlanContext
     this.containerStopRequests.put(containerId, containerId);
   }
 
-  public Recoverable getSetOperatorProperty(String operatorName, String propertyName, String propertyValue) {
+  public Recoverable getSetOperatorProperty(String operatorName, String propertyName, String propertyValue)
+  {
     return new SetOperatorProperty(operatorName, propertyName, propertyValue);
   }
 
-  public Recoverable getSetPhysicalOperatorProperty(int operatorId, String propertyName, String propertyValue) {
+  public Recoverable getSetPhysicalOperatorProperty(int operatorId, String propertyName, String propertyValue)
+  {
     return new SetPhysicalOperatorProperty(operatorId, propertyName, propertyValue);
   }
 
@@ -2674,7 +2851,7 @@ public class StreamingContainerManager implements PlanContext
     task.requestId = nodeToStramRequestIds.incrementAndGet();
     task.waitTime = waitTime;
     request.requestId = task.requestId;
-    FutureTask<Object> future = new FutureTask<Object>(task);
+    FutureTask<Object> future = new FutureTask<>(task);
     dispatch(future);
     return future;
   }
@@ -2684,8 +2861,7 @@ public class StreamingContainerManager implements PlanContext
     LogicalPlan lp = getLogicalPlan();
     try {
       return lp.getAttributes().clone();
-    }
-    catch (CloneNotSupportedException ex) {
+    } catch (CloneNotSupportedException ex) {
       throw new RuntimeException("Cannot clone DAG attributes", ex);
     }
   }
@@ -2698,13 +2874,12 @@ public class StreamingContainerManager implements PlanContext
     }
     try {
       return logicalOperator.getAttributes().clone();
-    }
-    catch (CloneNotSupportedException ex) {
+    } catch (CloneNotSupportedException ex) {
       throw new RuntimeException("Cannot clone operator attributes", ex);
     }
   }
 
-  public Map<String, Object> getPortAttributes(String operatorId, String portName)
+  public Attribute.AttributeMap getPortAttributes(String operatorId, String portName)
   {
     OperatorMeta logicalOperator = plan.getLogicalPlan().getOperatorMeta(operatorId);
     if (logicalOperator == null) {
@@ -2715,24 +2890,21 @@ public class StreamingContainerManager implements PlanContext
     Operators.describe(logicalOperator.getOperator(), portMap);
     PortContextPair<InputPort<?>> inputPort = portMap.inputPorts.get(portName);
     if (inputPort != null) {
-      HashMap<String, Object> portAttributeMap = new HashMap<String, Object>();
       InputPortMeta portMeta = logicalOperator.getMeta(inputPort.component);
-      Map<Attribute<Object>, Object> rawAttributes = Attribute.AttributeMap.AttributeInitializer.getAllAttributes(portMeta, Context.PortContext.class);
-      for (Map.Entry<Attribute<Object>, Object> attEntry : rawAttributes.entrySet()) {
-        portAttributeMap.put(attEntry.getKey().getSimpleName(), attEntry.getValue());
+      try {
+        return portMeta.getAttributes().clone();
+      } catch (CloneNotSupportedException ex) {
+        throw new RuntimeException("Cannot clone port attributes", ex);
       }
-      return portAttributeMap;
-    }
-    else {
+    } else {
       PortContextPair<OutputPort<?>> outputPort = portMap.outputPorts.get(portName);
       if (outputPort != null) {
-        HashMap<String, Object> portAttributeMap = new HashMap<String, Object>();
         OutputPortMeta portMeta = logicalOperator.getMeta(outputPort.component);
-        Map<Attribute<Object>, Object> rawAttributes = Attribute.AttributeMap.AttributeInitializer.getAllAttributes(portMeta, Context.PortContext.class);
-        for (Map.Entry<Attribute<Object>, Object> attEntry : rawAttributes.entrySet()) {
-          portAttributeMap.put(attEntry.getKey().getSimpleName(), attEntry.getValue());
+        try {
+          return portMeta.getAttributes().clone();
+        } catch (CloneNotSupportedException ex) {
+          throw new RuntimeException("Cannot clone port attributes", ex);
         }
-        return portAttributeMap;
       }
       throw new IllegalArgumentException("Invalid port name " + portName);
     }
@@ -2754,7 +2926,7 @@ public class StreamingContainerManager implements PlanContext
   public FutureTask<Object> logicalPlanModification(List<LogicalPlanRequest> requests) throws Exception
   {
     // delegate processing to dispatch thread
-    FutureTask<Object> future = new FutureTask<Object>(new LogicalPlanChangeRunnable(requests));
+    FutureTask<Object> future = new FutureTask<>(new LogicalPlanChangeRunnable(requests));
     dispatch(future);
     //LOG.info("Scheduled plan changes: {}", requests);
     return future;
@@ -2830,8 +3002,7 @@ public class StreamingContainerManager implements PlanContext
       if (journal != null) {
         journal.write(operation);
       }
-    }
-    catch (Exception e) {
+    } catch (Exception e) {
       throw new IllegalStateException("Failed to write to journal " + operation, e);
     }
   }
@@ -2848,12 +3019,11 @@ public class StreamingContainerManager implements PlanContext
   public static StreamingContainerManager getInstance(RecoveryHandler rh, LogicalPlan dag, boolean enableEventRecording) throws IOException
   {
     try {
-      CheckpointState checkpointedState = (CheckpointState) rh.restore();
+      CheckpointState checkpointedState = (CheckpointState)rh.restore();
       StreamingContainerManager scm;
       if (checkpointedState == null) {
         scm = new StreamingContainerManager(dag, enableEventRecording, new SystemClock());
-      }
-      else {
+      } else {
         // find better way to support final transient members
         PhysicalPlan plan = checkpointedState.physicalPlan;
         plan.getLogicalPlan().setAttribute(LogicalPlan.APPLICATION_ATTEMPT_ID, dag.getAttributes().get(LogicalPlan.APPLICATION_ATTEMPT_ID));
@@ -2863,8 +3033,7 @@ public class StreamingContainerManager implements PlanContext
             f.setAccessible(true);
             try {
               f.set(plan, scm);
-            }
-            catch (Exception e) {
+            } catch (Exception e) {
               throw new RuntimeException("Failed to set " + f, e);
             }
             f.setAccessible(false);
@@ -2885,8 +3054,7 @@ public class StreamingContainerManager implements PlanContext
             LOG.debug("Restore container agent {} for {}", c.getExternalId(), c);
             StreamingContainerAgent sca = new StreamingContainerAgent(c, scm.newStreamingContainerContext(c), scm);
             scm.containers.put(c.getExternalId(), sca);
-          }
-          else {
+          } else {
             LOG.debug("Requesting new resource for {}", c.toIdStateString());
             scm.requestContainer(c);
           }
@@ -2895,8 +3063,7 @@ public class StreamingContainerManager implements PlanContext
       scm.recoveryHandler = rh;
       scm.checkpoint();
       return scm;
-    }
-    catch (IOException e) {
+    } catch (IOException e) {
       throw new IllegalStateException("Failed to read checkpointed state", e);
     }
   }
@@ -2976,16 +3143,16 @@ public class StreamingContainerManager implements PlanContext
 
       this.finals = new FinalVars(finals, lp);
       StorageAgent sa = lp.getValue(OperatorContext.STORAGE_AGENT);
-      if(sa instanceof AsyncFSStorageAgent){
+      if (sa instanceof AsyncFSStorageAgent) {
         // replace the default storage agent, if present
-        AsyncFSStorageAgent fssa = (AsyncFSStorageAgent) sa;
+        AsyncFSStorageAgent fssa = (AsyncFSStorageAgent)sa;
         if (fssa.path.contains(oldAppId)) {
           fssa = new AsyncFSStorageAgent(fssa.path.replace(oldAppId, appId), conf);
           lp.setAttribute(OperatorContext.STORAGE_AGENT, fssa);
         }
       } else if (sa instanceof FSStorageAgent) {
         // replace the default storage agent, if present
-        FSStorageAgent fssa = (FSStorageAgent) sa;
+        FSStorageAgent fssa = (FSStorageAgent)sa;
         if (fssa.path.contains(oldAppId)) {
           fssa = new FSStorageAgent(fssa.path.replace(oldAppId, appId), conf);
           lp.setAttribute(OperatorContext.STORAGE_AGENT, fssa);
@@ -3052,7 +3219,7 @@ public class StreamingContainerManager implements PlanContext
         Thread.sleep(100);
         LOG.debug("Polling for a response to request with Id {}", requestId);
       }
-      if(obj != null) {
+      if (obj != null) {
         commandResponse.invalidate(requestId);
         return obj;
       }

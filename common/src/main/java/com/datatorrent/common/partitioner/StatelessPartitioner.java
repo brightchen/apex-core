@@ -1,30 +1,39 @@
 /**
- * Copyright (C) 2015 DataTorrent, Inc.
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *         http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package com.datatorrent.common.partitioner;
 
 import java.io.Serializable;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 import javax.validation.constraints.Min;
 
-import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 
 import com.datatorrent.api.DefaultPartition;
 import com.datatorrent.api.Operator;
@@ -97,7 +106,7 @@ public class StatelessPartitioner<T extends Operator> implements Partitioner<T>,
     logger.debug("define partitions, partitionCount current {} requested {}", partitions.size(), newPartitionCount);
 
     //Get a partition
-    DefaultPartition<T> partition = (DefaultPartition<T>) partitions.iterator().next();
+    DefaultPartition<T> partition = (DefaultPartition<T>)partitions.iterator().next();
     Collection<Partition<T>> newPartitions;
 
     if (partitions.iterator().next().getStats() == null) {
@@ -114,16 +123,13 @@ public class StatelessPartitioner<T extends Operator> implements Partitioner<T>,
       if (inputPortList != null && !inputPortList.isEmpty()) {
         DefaultPartition.assignPartitionKeys(newPartitions, inputPortList.iterator().next());
       }
-    }
-    else {
+    } else {
       // define partitions is being called again
       if (context.getParallelPartitionCount() != 0) {
         newPartitions = repartitionParallel(partitions, context);
-      }
-      else if (partition.getPartitionKeys().isEmpty()) {
+      } else if (partition.getPartitionKeys().isEmpty()) {
         newPartitions = repartitionInputOperator(partitions);
-      }
-      else {
+      } else {
         newPartitions = repartition(partitions);
       }
     }
@@ -163,8 +169,7 @@ public class StatelessPartitioner<T extends Operator> implements Partitioner<T>,
           Partition<T> siblingPartition = lowLoadPartitions.remove(partitionKey & reducedMask);
           if (siblingPartition == null) {
             lowLoadPartitions.put(partitionKey & reducedMask, p);
-          }
-          else {
+          } else {
             // both of the partitions are low load, combine
             PartitionKeys newPks = new PartitionKeys(reducedMask, Sets.newHashSet(partitionKey & reducedMask));
             // put new value so the map gets marked as modified
@@ -175,8 +180,7 @@ public class StatelessPartitioner<T extends Operator> implements Partitioner<T>,
             //LOG.debug("partition keys after merge {}", siblingPartition.getPartitionKeys());
           }
         }
-      }
-      else if (load > 0) {
+      } else if (load > 0) {
         // split bottlenecks
         Map<InputPort<?>, PartitionKeys> keys = p.getPartitionKeys();
         Map.Entry<InputPort<?>, PartitionKeys> e = keys.entrySet().iterator().next();
@@ -190,8 +194,7 @@ public class StatelessPartitioner<T extends Operator> implements Partitioner<T>,
           int key = e.getValue().partitions.iterator().next();
           int key2 = (newMask ^ e.getValue().mask) | key;
           newKeys = Sets.newHashSet(key, key2);
-        }
-        else {
+        } else {
           // assign keys to separate partitions
           newMask = e.getValue().mask;
           newKeys = e.getValue().partitions;
@@ -202,8 +205,7 @@ public class StatelessPartitioner<T extends Operator> implements Partitioner<T>,
           newPartition.getPartitionKeys().put(e.getKey(), new PartitionKeys(newMask, Sets.newHashSet(key)));
           newPartitions.add(newPartition);
         }
-      }
-      else {
+      } else {
         // leave unchanged
         newPartitions.add(p);
       }
@@ -229,16 +231,13 @@ public class StatelessPartitioner<T extends Operator> implements Partitioner<T>,
       if (load < 0) {
         if (!lowLoadPartitions.isEmpty()) {
           newPartitions.add(lowLoadPartitions.remove(0));
-        }
-        else {
+        } else {
           lowLoadPartitions.add(p);
         }
-      }
-      else if (load > 0) {
+      } else if (load > 0) {
         newPartitions.add(new DefaultPartition<T>(p.getPartitionedInstance()));
         newPartitions.add(new DefaultPartition<T>(p.getPartitionedInstance()));
-      }
-      else {
+      } else {
         newPartitions.add(p);
       }
     }
@@ -256,7 +255,7 @@ public class StatelessPartitioner<T extends Operator> implements Partitioner<T>,
    * @return new adjusted partitions
    */
   public static <T extends Operator> Collection<Partition<T>> repartitionParallel(Collection<Partition<T>> partitions,
-                                                                                  PartitioningContext context)
+      PartitioningContext context)
   {
     List<Partition<T>> newPartitions = Lists.newArrayList();
     newPartitions.addAll(partitions);
@@ -270,8 +269,7 @@ public class StatelessPartitioner<T extends Operator> implements Partitioner<T>,
         partitionIterator.next();
         partitionIterator.remove();
       }
-    }
-    else {
+    } else {
       //Add more partitions
       T anOperator = newPartitions.iterator().next().getPartitionedInstance();
 

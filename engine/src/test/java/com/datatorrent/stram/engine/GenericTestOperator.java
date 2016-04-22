@@ -1,33 +1,38 @@
 /**
- * Copyright (C) 2015 DataTorrent, Inc.
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *         http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package com.datatorrent.stram.engine;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.datatorrent.api.DefaultInputPort;
+import com.datatorrent.api.DefaultOutputPort;
 import com.datatorrent.api.annotation.InputPortFieldAnnotation;
 import com.datatorrent.api.annotation.OutputPortFieldAnnotation;
 import com.datatorrent.common.util.BaseOperator;
-import com.datatorrent.api.DefaultInputPort;
-import com.datatorrent.api.DefaultOutputPort;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * Module for constructing unit test DAG.
  * Test should reference the ports defined using the constants.
  */
-public class GenericTestOperator extends BaseOperator {
+public class GenericTestOperator extends BaseOperator
+{
 
   private static final Logger LOG = LoggerFactory.getLogger(GenericTestOperator.class);
 
@@ -38,36 +43,44 @@ public class GenericTestOperator extends BaseOperator {
 
   public volatile Object inport1Tuple = null;
 
-  @InputPortFieldAnnotation(optional=true)
-  final public transient InputPort<Object> inport1 = new DefaultInputPort<Object>() {
+  @InputPortFieldAnnotation(optional = true)
+  public final transient InputPort<Object> inport1 = new DefaultInputPort<Object>()
+  {
     @Override
-    final public void process(Object t) {
+    public final void process(Object t)
+    {
       inport1Tuple = t;
       processInternal(t);
     }
+
     @Override
-    public String toString() {
+    public String toString()
+    {
       return GenericTestOperator.this.toString() + "." + IPORT1;
     }
   };
 
-  @InputPortFieldAnnotation(optional=true)
-  final public transient InputPort<Object> inport2 = new DefaultInputPort<Object>() {
+  @InputPortFieldAnnotation(optional = true)
+  public final transient InputPort<Object> inport2 = new DefaultInputPort<Object>()
+  {
     @Override
-    final public void process(Object payload) {
+    public final void process(Object payload)
+    {
       processInternal(payload);
     }
+
     @Override
-    public String toString() {
+    public String toString()
+    {
       return GenericTestOperator.this.toString() + "." + IPORT2;
     }
   };
 
-  @OutputPortFieldAnnotation(optional=true)
-  final public transient DefaultOutputPort<Object> outport1 = new DefaultOutputPort<Object>();
+  @OutputPortFieldAnnotation(optional = true)
+  public final transient DefaultOutputPort<Object> outport1 = new DefaultOutputPort<>();
 
-  @OutputPortFieldAnnotation(optional=true)
-  final public transient DefaultOutputPort<Object> outport2 = new DefaultOutputPort<Object>();
+  @OutputPortFieldAnnotation(optional = true)
+  public final transient DefaultOutputPort<Object> outport2 = new DefaultOutputPort<>();
 
   private String emitFormat;
 
@@ -77,19 +90,23 @@ public class GenericTestOperator extends BaseOperator {
 
   private transient GenericOperatorProperty genericOperatorProperty = new GenericOperatorProperty("test");
 
-  public String getMyStringProperty() {
+  public String getMyStringProperty()
+  {
     return myStringProperty;
   }
 
-  public void setMyStringProperty(String myStringProperty) {
+  public void setMyStringProperty(String myStringProperty)
+  {
     this.myStringProperty = myStringProperty;
   }
 
-  public boolean isBooleanProperty() {
+  public boolean isBooleanProperty()
+  {
     return booleanProperty;
   }
 
-  public void setBooleanProperty(boolean booleanProperty) {
+  public void setBooleanProperty(boolean booleanProperty)
+  {
     this.booleanProperty = booleanProperty;
   }
 
@@ -97,17 +114,21 @@ public class GenericTestOperator extends BaseOperator {
 
   /**
    * setter w/o getter defined
+   *
    * @param v
    */
-  public void setStringPropertySetterOnly(String v) {
+  public void setStringPropertySetterOnly(String v)
+  {
     this.propertySetterOnly = v;
   }
 
-  public String getEmitFormat() {
+  public String getEmitFormat()
+  {
     return emitFormat;
   }
 
-  public void setEmitFormat(String emitFormat) {
+  public void setEmitFormat(String emitFormat)
+  {
     this.emitFormat = emitFormat;
   }
 
@@ -121,13 +142,17 @@ public class GenericTestOperator extends BaseOperator {
     this.genericOperatorProperty = genericOperatorProperty;
   }
 
-  private void processInternal(Object o) {
+  private void processInternal(Object o)
+  {
     LOG.debug("Got some work: " + o);
     if (emitFormat != null) {
       o = String.format(emitFormat, o);
     }
     if (outport1.isConnected()) {
       outport1.emit(o);
+    }
+    if (outport2.isConnected()) {
+      outport2.emit(o);
     }
   }
 

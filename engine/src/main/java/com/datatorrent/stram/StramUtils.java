@@ -1,17 +1,20 @@
 /**
- * Copyright (C) 2015 DataTorrent, Inc.
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *         http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package com.datatorrent.stram;
 
@@ -37,8 +40,7 @@ public abstract class StramUtils
     try {
       //return Class.forName(className).asSubclass(superClass);
       return Thread.currentThread().getContextClassLoader().loadClass(className).asSubclass(superClass);
-    }
-    catch (ClassNotFoundException e) {
+    } catch (ClassNotFoundException e) {
       throw new IllegalArgumentException("Class not found: " + className, e);
     }
   }
@@ -47,16 +49,14 @@ public abstract class StramUtils
   {
     try {
       return clazz.newInstance();
-    }
-    catch (IllegalAccessException e) {
+    } catch (IllegalAccessException e) {
       throw new IllegalArgumentException("Failed to instantiate " + clazz, e);
-    }
-    catch (InstantiationException e) {
+    } catch (InstantiationException e) {
       throw new IllegalArgumentException("Failed to instantiate " + clazz, e);
     }
   }
 
-  public static abstract class YarnContainerMain
+  public abstract static class YarnContainerMain
   {
     static {
       // set system properties so they can be used in logger configuration
@@ -69,7 +69,7 @@ public abstract class StramUtils
       System.setProperty("hadoop.log.file", "dt.log");
       if (envs.get("CDH_YARN_HOME") != null) {
         // map logging properties to what CHD expects out of the box
-        String[] keys = new String[] { "log.dir", "log.file", "root.logger" };
+        String[] keys = new String[]{"log.dir", "log.file", "root.logger"};
         for (String key : keys) {
           String v = System.getProperty("hadoop." + key);
           if (v != null) {

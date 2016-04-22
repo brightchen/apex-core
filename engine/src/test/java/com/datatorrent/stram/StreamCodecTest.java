@@ -1,22 +1,43 @@
 /**
- * Copyright (C) 2015 DataTorrent, Inc.
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *         http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package com.datatorrent.stram;
 
+import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
-import com.datatorrent.api.*;
+import org.junit.Assert;
+import org.junit.Before;
+import org.junit.Rule;
+import org.junit.Test;
+
+import com.google.common.collect.Lists;
+
+import com.datatorrent.api.Context;
+import com.datatorrent.api.DefaultInputPort;
+import com.datatorrent.api.Operator;
+import com.datatorrent.api.StatsListener;
+import com.datatorrent.api.StreamCodec;
 import com.datatorrent.api.annotation.InputPortFieldAnnotation;
 import com.datatorrent.common.partitioner.StatelessPartitioner;
 import com.datatorrent.stram.api.OperatorDeployInfo;
@@ -27,26 +48,25 @@ import com.datatorrent.stram.plan.physical.PTContainer;
 import com.datatorrent.stram.plan.physical.PTOperator;
 import com.datatorrent.stram.plan.physical.PhysicalPlan;
 import com.datatorrent.stram.support.StramTestSupport;
-import com.google.common.collect.Lists;
-import java.io.Serializable;
-import java.util.*;
-import org.junit.Assert;
-import org.junit.Rule;
-import org.junit.Test;
 
 /**
  */
 public class StreamCodecTest
 {
+  private LogicalPlan dag;
+
   @Rule
   public StramTestSupport.TestMeta testMeta = new StramTestSupport.TestMeta();
+
+  @Before
+  public void setup()
+  {
+    dag = StramTestSupport.createDAG(testMeta);
+  }
 
   @Test
   public void testStreamCodec()
   {
-    LogicalPlan dag = new LogicalPlan();
-    dag.setAttribute(com.datatorrent.api.Context.DAGContext.APPLICATION_PATH, testMeta.dir);
-
     GenericTestOperator node1 = dag.addOperator("node1", GenericTestOperator.class);
     GenericTestOperator node2 = dag.addOperator("node2", GenericTestOperator.class);
     GenericTestOperator node3 = dag.addOperator("node3", GenericTestOperator.class);
@@ -104,9 +124,6 @@ public class StreamCodecTest
   @Test
   public void testStreamCodecReuse()
   {
-    LogicalPlan dag = new LogicalPlan();
-    dag.setAttribute(com.datatorrent.api.Context.DAGContext.APPLICATION_PATH, testMeta.dir);
-
     GenericTestOperator node1 = dag.addOperator("node1", GenericTestOperator.class);
     GenericTestOperator node2 = dag.addOperator("node2", GenericTestOperator.class);
     GenericTestOperator node3 = dag.addOperator("node3", GenericTestOperator.class);
@@ -151,9 +168,6 @@ public class StreamCodecTest
   @Test
   public void testDefaultStreamCodec()
   {
-    LogicalPlan dag = new LogicalPlan();
-    dag.setAttribute(com.datatorrent.api.Context.DAGContext.APPLICATION_PATH, testMeta.dir);
-
     GenericTestOperator node1 = dag.addOperator("node1", GenericTestOperator.class);
     DefaultCodecOperator node2 = dag.addOperator("node2", DefaultCodecOperator.class);
     DefaultCodecOperator node3 = dag.addOperator("node3", DefaultCodecOperator.class);
@@ -210,9 +224,6 @@ public class StreamCodecTest
   @Test
   public void testPartitioningStreamCodec()
   {
-    LogicalPlan dag = new LogicalPlan();
-    dag.setAttribute(com.datatorrent.api.Context.DAGContext.APPLICATION_PATH, testMeta.dir);
-
     GenericTestOperator node1 = dag.addOperator("node1", GenericTestOperator.class);
     GenericTestOperator node2 = dag.addOperator("node2", GenericTestOperator.class);
     dag.setAttribute(node2, Context.OperatorContext.PARTITIONER, new StatelessPartitioner<GenericTestOperator>(3));
@@ -261,9 +272,6 @@ public class StreamCodecTest
   @Test
   public void testMxNPartitioningStreamCodec()
   {
-    LogicalPlan dag = new LogicalPlan();
-    dag.setAttribute(com.datatorrent.api.Context.DAGContext.APPLICATION_PATH, testMeta.dir);
-
     GenericTestOperator node1 = dag.addOperator("node1", GenericTestOperator.class);
     dag.setAttribute(node1, Context.OperatorContext.PARTITIONER, new StatelessPartitioner<GenericTestOperator>(2));
     GenericTestOperator node2 = dag.addOperator("node2", GenericTestOperator.class);
@@ -295,7 +303,7 @@ public class StreamCodecTest
 
     for (PTContainer container : containers) {
       List<PTOperator> operators = container.getOperators();
-      for (PTOperator operator :operators) {
+      for (PTOperator operator : operators) {
         if (!operator.isUnifier()) {
           if (operator.getOperatorMeta() == n1meta) {
             OperatorDeployInfo odi = getOperatorDeployInfo(operator, n1meta.getName(), dnm);
@@ -328,9 +336,6 @@ public class StreamCodecTest
   @Test
   public void testParallelPartitioningStreamCodec()
   {
-    LogicalPlan dag = new LogicalPlan();
-    dag.setAttribute(com.datatorrent.api.Context.DAGContext.APPLICATION_PATH, testMeta.dir);
-
     GenericTestOperator node1 = dag.addOperator("node1", GenericTestOperator.class);
     dag.setAttribute(node1, Context.OperatorContext.PARTITIONER, new StatelessPartitioner<GenericTestOperator>(2));
     GenericTestOperator node2 = dag.addOperator("node2", GenericTestOperator.class);
@@ -354,7 +359,7 @@ public class StreamCodecTest
     List<PTContainer> containers = plan.getContainers();
 
     for (int i = 0; i < containers.size(); ++i) {
-      StreamingContainerManagerTest.assignContainer(dnm, "container" + (i+1));
+      StreamingContainerManagerTest.assignContainer(dnm, "container" + (i + 1));
     }
 
     LogicalPlan.OperatorMeta n1meta = dag.getMeta(node1);
@@ -419,9 +424,6 @@ public class StreamCodecTest
   @Test
   public void testMultipleInputStreamCodec()
   {
-    LogicalPlan dag = new LogicalPlan();
-    dag.setAttribute(com.datatorrent.api.Context.DAGContext.APPLICATION_PATH, testMeta.dir);
-
     GenericTestOperator node1 = dag.addOperator("node1", GenericTestOperator.class);
     TestStreamCodec serDe = new TestStreamCodec();
     GenericTestOperator node2 = dag.addOperator("node2", GenericTestOperator.class);
@@ -474,9 +476,6 @@ public class StreamCodecTest
   @Test
   public void testPartitioningMultipleInputStreamCodec()
   {
-    LogicalPlan dag = new LogicalPlan();
-    dag.setAttribute(com.datatorrent.api.Context.DAGContext.APPLICATION_PATH, testMeta.dir);
-
     GenericTestOperator node1 = dag.addOperator("node1", GenericTestOperator.class);
     GenericTestOperator node2 = dag.addOperator("node2", GenericTestOperator.class);
     dag.setAttribute(node1, Context.OperatorContext.PARTITIONER, new StatelessPartitioner<GenericTestOperator>(2));
@@ -507,7 +506,7 @@ public class StreamCodecTest
 
     for (PTContainer container : containers) {
       List<PTOperator> operators = container.getOperators();
-      for (PTOperator operator :operators) {
+      for (PTOperator operator : operators) {
         if (!operator.isUnifier()) {
           if (operator.getOperatorMeta() == n1meta) {
             OperatorDeployInfo odi = getOperatorDeployInfo(operator, n1meta.getName(), dnm);
@@ -553,9 +552,6 @@ public class StreamCodecTest
   @Test
   public void testMultipleStreamCodecs()
   {
-    LogicalPlan dag = new LogicalPlan();
-    dag.setAttribute(com.datatorrent.api.Context.DAGContext.APPLICATION_PATH, testMeta.dir);
-
     GenericTestOperator node1 = dag.addOperator("node1", GenericTestOperator.class);
     GenericTestOperator node2 = dag.addOperator("node2", GenericTestOperator.class);
     GenericTestOperator node3 = dag.addOperator("node3", GenericTestOperator.class);
@@ -610,9 +606,6 @@ public class StreamCodecTest
   @Test
   public void testPartitioningMultipleStreamCodecs()
   {
-    LogicalPlan dag = new LogicalPlan();
-    dag.setAttribute(com.datatorrent.api.Context.DAGContext.APPLICATION_PATH, testMeta.dir);
-
     GenericTestOperator node1 = dag.addOperator("node1", GenericTestOperator.class);
     GenericTestOperator node2 = dag.addOperator("node2", GenericTestOperator.class);
     GenericTestOperator node3 = dag.addOperator("node3", GenericTestOperator.class);
@@ -644,7 +637,7 @@ public class StreamCodecTest
 
     for (PTContainer container : containers) {
       List<PTOperator> operators = container.getOperators();
-      for (PTOperator operator :operators) {
+      for (PTOperator operator : operators) {
         if (!operator.isUnifier()) {
           if (operator.getOperatorMeta() == n1meta) {
             OperatorDeployInfo odi = getOperatorDeployInfo(operator, n1meta.getName(), dnm);
@@ -696,9 +689,6 @@ public class StreamCodecTest
   @Test
   public void testMxNMultipleStreamCodecs()
   {
-    LogicalPlan dag = new LogicalPlan();
-    dag.setAttribute(com.datatorrent.api.Context.DAGContext.APPLICATION_PATH, testMeta.dir);
-
     GenericTestOperator node1 = dag.addOperator("node1", GenericTestOperator.class);
     dag.setAttribute(node1, Context.OperatorContext.PARTITIONER, new StatelessPartitioner<GenericTestOperator>(2));
     GenericTestOperator node2 = dag.addOperator("node2", GenericTestOperator.class);
@@ -709,7 +699,6 @@ public class StreamCodecTest
     dag.setAttribute(node3, Context.OperatorContext.PARTITIONER, new StatelessPartitioner<GenericTestOperator>(3));
     TestStreamCodec serDe2 = new TestStreamCodec();
     dag.setInputPortAttribute(node3.inport1, Context.PortContext.STREAM_CODEC, serDe2);
-
 
     dag.addStream("n1n2n3", node1.outport1, node2.inport1, node3.inport1);
 
@@ -748,7 +737,7 @@ public class StreamCodecTest
     LogicalPlan.OperatorMeta n3meta = dag.getMeta(node3);
     for (PTContainer container : containers) {
       List<PTOperator> operators = container.getOperators();
-      for (PTOperator operator :operators) {
+      for (PTOperator operator : operators) {
         if (!operator.isUnifier()) {
           if (operator.getOperatorMeta() == n1meta) {
             OperatorDeployInfo odi = getOperatorDeployInfo(operator, n1meta.getName(), dnm);
@@ -800,9 +789,6 @@ public class StreamCodecTest
   @Test
   public void testInlineStreamCodec()
   {
-    LogicalPlan dag = new LogicalPlan();
-    dag.setAttribute(com.datatorrent.api.Context.DAGContext.APPLICATION_PATH, testMeta.dir);
-
     GenericTestOperator node1 = dag.addOperator("node1", GenericTestOperator.class);
     GenericTestOperator node2 = dag.addOperator("node2", GenericTestOperator.class);
     GenericTestOperator node3 = dag.addOperator("node3", GenericTestOperator.class);
@@ -884,9 +870,6 @@ public class StreamCodecTest
   @Test
   public void testCascadingStreamCodec()
   {
-    LogicalPlan dag = new LogicalPlan();
-    dag.setAttribute(com.datatorrent.api.Context.DAGContext.APPLICATION_PATH, testMeta.dir);
-
     GenericTestOperator node1 = dag.addOperator("node1", GenericTestOperator.class);
     GenericTestOperator node2 = dag.addOperator("node2", GenericTestOperator.class);
     GenericTestOperator node3 = dag.addOperator("node3", GenericTestOperator.class);
@@ -919,7 +902,7 @@ public class StreamCodecTest
 
     for (PTContainer container : containers) {
       List<PTOperator> operators = container.getOperators();
-      for (PTOperator operator :operators) {
+      for (PTOperator operator : operators) {
         if (!operator.isUnifier()) {
           if (operator.getOperatorMeta() == n1meta) {
             OperatorDeployInfo odi = getOperatorDeployInfo(operator, n1meta.getName(), dnm);
@@ -971,12 +954,9 @@ public class StreamCodecTest
   @Test
   public void testDynamicPartitioningStreamCodec()
   {
-    LogicalPlan dag = new LogicalPlan();
-    dag.setAttribute(com.datatorrent.api.Context.DAGContext.APPLICATION_PATH, testMeta.dir);
-
     GenericTestOperator node1 = dag.addOperator("node1", GenericTestOperator.class);
     dag.setAttribute(node1, Context.OperatorContext.PARTITIONER, new StatelessPartitioner<GenericTestOperator>(2));
-    dag.setAttribute(node1, Context.OperatorContext.STATS_LISTENERS, Lists.newArrayList((StatsListener) new PartitioningTest.PartitionLoadWatch()));
+    dag.setAttribute(node1, Context.OperatorContext.STATS_LISTENERS, Lists.newArrayList((StatsListener)new PartitioningTest.PartitionLoadWatch()));
     GenericTestOperator node2 = dag.addOperator("node2", GenericTestOperator.class);
     dag.setAttribute(node2, Context.OperatorContext.PARTITIONER, new StatelessPartitioner<GenericTestOperator>(3));
     dag.setAttribute(node2, Context.OperatorContext.STATS_LISTENERS, Arrays.asList(new StatsListener[]{new PartitioningTest.PartitionLoadWatch()}));
@@ -987,7 +967,6 @@ public class StreamCodecTest
     dag.setAttribute(node3, Context.OperatorContext.STATS_LISTENERS, Arrays.asList(new StatsListener[]{new PartitioningTest.PartitionLoadWatch()}));
     TestStreamCodec serDe2 = new TestStreamCodec();
     dag.setInputPortAttribute(node3.inport1, Context.PortContext.STREAM_CODEC, serDe2);
-
 
     dag.addStream("n1n2n3", node1.outport1, node2.inport1, node3.inport1);
 
@@ -1019,7 +998,7 @@ public class StreamCodecTest
     // scale down N (node2) from 3 to 2 and then from 2 to 1
     for (int i = 0; i < 2; i++) {
       markAllOperatorsActive(plan);
-      List<PTOperator> ptos =  plan.getOperators(n2meta);
+      List<PTOperator> ptos = plan.getOperators(n2meta);
       for (PTOperator ptOperator : ptos) {
         PartitioningTest.PartitionLoadWatch.put(ptOperator, -1);
         plan.onStatusUpdate(ptOperator);
@@ -1042,13 +1021,13 @@ public class StreamCodecTest
         */
       }
 
-      Assert.assertEquals("Number of unifiers ", 2-i, upstreamOperators.size());
+      Assert.assertEquals("Number of unifiers ", 2 - i, upstreamOperators.size());
     }
 
     // scale down N (node3) from 3 to 2 and then from 2 to 1
     for (int i = 0; i < 2; i++) {
       markAllOperatorsActive(plan);
-      List<PTOperator> ptos =  plan.getOperators(n3meta);
+      List<PTOperator> ptos = plan.getOperators(n3meta);
       for (PTOperator ptOperator : ptos) {
         PartitioningTest.PartitionLoadWatch.put(ptOperator, -1);
         plan.onStatusUpdate(ptOperator);
@@ -1063,7 +1042,7 @@ public class StreamCodecTest
         upstreamOperators.addAll(operator.upstreamMerge.values());
       }
 
-      Assert.assertEquals("Number of unifiers ", 2-i, upstreamOperators.size());
+      Assert.assertEquals("Number of unifiers ", 2 - i, upstreamOperators.size());
     }
 
     // Check that different unifiers were created for the two output operators with different codecs
@@ -1100,7 +1079,7 @@ public class StreamCodecTest
         */
       }
 
-      Assert.assertEquals("Number of unifiers ", 2+i, upstreamOperators.size());
+      Assert.assertEquals("Number of unifiers ", 2 + i, upstreamOperators.size());
     }
 
     // scale down M to 1
@@ -1155,7 +1134,6 @@ public class StreamCodecTest
     return lastId;
   }
 
-
   private void markAllOperatorsActive(PhysicalPlan plan)
   {
     for (PTContainer container : plan.getContainers()) {
@@ -1179,8 +1157,8 @@ public class StreamCodecTest
   }
 
   private void checkPresentStreamCodec(LogicalPlan.OperatorMeta operatorMeta, Operator.InputPort<?> inputPort,
-                                       Map<Integer, StreamCodec<?>> streamCodecs,
-                                       String id, PhysicalPlan plan )
+      Map<Integer, StreamCodec<?>> streamCodecs,
+      String id, PhysicalPlan plan)
   {
     StreamCodec<?> streamCodecInfo = StreamingContainerAgent.getStreamCodec(operatorMeta.getMeta(inputPort));
     Assert.assertTrue("stream codec identifier not present" + id, isStrCodecPresent(streamCodecInfo, plan));
@@ -1189,7 +1167,7 @@ public class StreamCodecTest
   }
 
   private void checkPresentStreamCodecInfo(Map<Integer, StreamCodec<?>> streamCodecs, String id,
-                                           Integer streamCodecIdentifier, StreamCodec<?> streamCodecInfo)
+      Integer streamCodecIdentifier, StreamCodec<?> streamCodecInfo)
   {
     StreamCodec<?> opStreamCodecInfo = streamCodecs.get(streamCodecIdentifier);
     Assert.assertNotNull("stream codec info null " + id, opStreamCodecInfo);
@@ -1223,11 +1201,12 @@ public class StreamCodecTest
       }
     }
 
-    Assert.assertNotNull(id + " assigned to " + containerId + " deploy info is null", odi );
+    Assert.assertNotNull(id + " assigned to " + containerId + " deploy info is null", odi);
     return odi;
   }
 
-  private OperatorDeployInfo.InputDeployInfo getInputDeployInfo(OperatorDeployInfo odi, LogicalPlan.InputPortMeta portMeta)
+  private OperatorDeployInfo.InputDeployInfo getInputDeployInfo(OperatorDeployInfo odi, LogicalPlan.InputPortMeta
+      portMeta)
   {
     OperatorDeployInfo.InputDeployInfo idi = null;
     List<OperatorDeployInfo.InputDeployInfo> inputs = odi.inputs;
@@ -1267,7 +1246,7 @@ public class StreamCodecTest
     @Override
     public int getPartition(Object o)
     {
-      return o.hashCode()/2;
+      return o.hashCode() / 2;
     }
   }
 
@@ -1277,11 +1256,11 @@ public class StreamCodecTest
     @Override
     public int getPartition(Object o)
     {
-      return o.hashCode()/3;
+      return o.hashCode() / 3;
     }
   }
 
-  public static class DefaultTestStreamCodec  extends DefaultStatefulStreamCodec<Object> implements Serializable
+  public static class DefaultTestStreamCodec extends DefaultStatefulStreamCodec<Object> implements Serializable
   {
     private static final long serialVersionUID = 1L;
   }
@@ -1291,7 +1270,8 @@ public class StreamCodecTest
     private static final DefaultTestStreamCodec codec = new DefaultTestStreamCodec();
 
     @InputPortFieldAnnotation(optional = true)
-    final public transient InputPort<Object> inportWithCodec = new DefaultInputPort<Object>() {
+    public final transient InputPort<Object> inportWithCodec = new DefaultInputPort<Object>()
+    {
       @Override
       public StreamCodec<Object> getStreamCodec()
       {
@@ -1299,7 +1279,7 @@ public class StreamCodecTest
       }
 
       @Override
-      final public void process(Object payload)
+      public final void process(Object payload)
       {
       }
 

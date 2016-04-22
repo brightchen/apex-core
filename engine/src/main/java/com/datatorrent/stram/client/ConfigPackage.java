@@ -1,29 +1,45 @@
 /**
- * Copyright (C) 2015 DataTorrent, Inc.
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *         http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package com.datatorrent.stram.client;
 
-import java.io.*;
-import java.util.*;
-import java.util.jar.*;
-import net.lingala.zip4j.core.ZipFile;
-import net.lingala.zip4j.exception.ZipException;
-import org.apache.commons.io.FileUtils;
-import org.apache.commons.lang3.StringUtils;
+import java.io.Closeable;
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
+import java.util.jar.Attributes;
+import java.util.jar.JarFile;
+import java.util.jar.Manifest;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import org.apache.commons.io.FileUtils;
+import org.apache.commons.lang3.StringUtils;
+
+import net.lingala.zip4j.core.ZipFile;
+import net.lingala.zip4j.exception.ZipException;
 
 /**
  * <p>
@@ -36,6 +52,7 @@ public class ConfigPackage extends JarFile implements Closeable
 
   public static final String ATTRIBUTE_DT_CONF_PACKAGE_NAME = "DT-Conf-Package-Name";
   public static final String ATTRIBUTE_DT_APP_PACKAGE_NAME = "DT-App-Package-Name";
+  public static final String ATTRIBUTE_DT_APP_PACKAGE_GROUP_ID = "DT-App-Package-Group-Id";
   public static final String ATTRIBUTE_DT_APP_PACKAGE_MIN_VERSION = "DT-App-Package-Min-Version";
   public static final String ATTRIBUTE_DT_APP_PACKAGE_MAX_VERSION = "DT-App-Package-Max-Version";
   public static final String ATTRIBUTE_DT_CONF_PACKAGE_DESCRIPTION = "DT-Conf-Package-Description";
@@ -44,15 +61,16 @@ public class ConfigPackage extends JarFile implements Closeable
 
   private final String configPackageName;
   private final String appPackageName;
+  private final String appPackageGroupId;
   private final String appPackageMinVersion;
   private final String appPackageMaxVersion;
   private final String configPackageDescription;
-  private final ArrayList<String> classPath = new ArrayList<String>();
-  private final ArrayList<String> files = new ArrayList<String>();
+  private final ArrayList<String> classPath = new ArrayList<>();
+  private final ArrayList<String> files = new ArrayList<>();
   private final String directory;
 
-  private final Map<String, String> properties = new TreeMap<String, String>();
-  private final Map<String, Map<String, String>> appProperties = new TreeMap<String, Map<String, String>>();
+  private final Map<String, String> properties = new TreeMap<>();
+  private final Map<String, Map<String, String>> appProperties = new TreeMap<>();
 
   /**
    * Creates an Config Package object.
@@ -71,6 +89,7 @@ public class ConfigPackage extends JarFile implements Closeable
     Attributes attr = manifest.getMainAttributes();
     configPackageName = attr.getValue(ATTRIBUTE_DT_CONF_PACKAGE_NAME);
     appPackageName = attr.getValue(ATTRIBUTE_DT_APP_PACKAGE_NAME);
+    appPackageGroupId = attr.getValue(ATTRIBUTE_DT_APP_PACKAGE_GROUP_ID);
     appPackageMinVersion = attr.getValue(ATTRIBUTE_DT_APP_PACKAGE_MIN_VERSION);
     appPackageMaxVersion = attr.getValue(ATTRIBUTE_DT_APP_PACKAGE_MAX_VERSION);
     configPackageDescription = attr.getValue(ATTRIBUTE_DT_CONF_PACKAGE_DESCRIPTION);
@@ -90,7 +109,7 @@ public class ConfigPackage extends JarFile implements Closeable
     if (zipFile.isEncrypted()) {
       throw new ZipException("Encrypted conf package not supported yet");
     }
-    File newDirectory = new File("/tmp/dt-configPackage-" + Long.toString(System.nanoTime()));
+    File newDirectory = Files.createTempDirectory("dt-configPackage-").toFile();
     newDirectory.mkdirs();
     directory = newDirectory.getAbsolutePath();
     zipFile.extractAll(directory);
@@ -117,6 +136,11 @@ public class ConfigPackage extends JarFile implements Closeable
   public String getAppPackageName()
   {
     return appPackageName;
+  }
+
+  public String getAppPackageGroupId()
+  {
+    return appPackageGroupId;
   }
 
   public String getAppPackageMinVersion()
@@ -165,7 +189,7 @@ public class ConfigPackage extends JarFile implements Closeable
       String name = file.getName();
       if (name.length() > 15 && name.startsWith("properties-") && name.endsWith(".xml")) {
         String appName = name.substring(11, name.length() - 4);
-        Map<String, String> dp = new TreeMap<String, String>(properties);
+        Map<String, String> dp = new TreeMap<>(properties);
         parsePropertiesXml(file, dp);
         appProperties.put(appName, dp);
       }

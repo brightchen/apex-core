@@ -1,17 +1,20 @@
 /**
- * Copyright (C) 2015 DataTorrent, Inc.
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *         http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package com.datatorrent.bufferserver.client;
 
@@ -22,7 +25,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.testng.Assert;
+
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
@@ -36,6 +39,9 @@ import com.datatorrent.bufferserver.support.Publisher;
 import com.datatorrent.bufferserver.support.Subscriber;
 import com.datatorrent.bufferserver.util.Codec;
 import com.datatorrent.netlet.DefaultEventLoop;
+
+import static org.testng.Assert.assertFalse;
+import static org.testng.Assert.assertTrue;
 
 /**
  *
@@ -54,16 +60,16 @@ public class SubscriberTest
     try {
       eventloopServer = DefaultEventLoop.createEventLoop("server");
       eventloopClient = DefaultEventLoop.createEventLoop("client");
-    }
-    catch (IOException ioe) {
+    } catch (IOException ioe) {
       throw new RuntimeException(ioe);
     }
     eventloopServer.start();
     eventloopClient.start();
 
-    instance = new Server(0);
+    instance = new Server(0, 64, 2);
     address = instance.run(eventloopServer);
-    assert (address instanceof InetSocketAddress);
+    assertTrue(address instanceof InetSocketAddress);
+    assertFalse(address.isUnresolved());
   }
 
   @AfterClass
@@ -74,12 +80,12 @@ public class SubscriberTest
     eventloopClient.stop();
   }
 
-  @Test
+  @Test(timeOut = 1000)
   @SuppressWarnings("SleepWhileInLoop")
   public void test() throws InterruptedException
   {
     final Publisher bsp1 = new Publisher("MyPublisher");
-    eventloopClient.connect(address.isUnresolved() ? new InetSocketAddress(address.getHostName(), address.getPort()) : address, bsp1);
+    eventloopClient.connect(address, bsp1);
 
     final Subscriber bss1 = new Subscriber("MySubscriber")
     {
@@ -101,7 +107,7 @@ public class SubscriberTest
       }
 
     };
-    eventloopClient.connect(address.isUnresolved() ? new InetSocketAddress(address.getHostName(), address.getPort()) : address, bss1);
+    eventloopClient.connect(address, bss1);
 
     final int baseWindow = 0x7afebabe;
     bsp1.activate(null, baseWindow, 0);
@@ -128,12 +134,9 @@ public class SubscriberTest
             windowId++;
             Thread.sleep(5);
           }
-        }
-        catch (InterruptedException ex) {
-        }
-        catch (CancelledKeyException cke) {
-        }
-        finally {
+        } catch (InterruptedException | CancelledKeyException e) {
+          logger.debug("{}", e);
+        } finally {
           logger.debug("publisher the middle of window = {}", Codec.getStringWindowId(windowId));
         }
       }
@@ -155,7 +158,7 @@ public class SubscriberTest
      * subscribe from 8 onwards. What we should see is that subscriber gets the new data from 8 onwards.
      */
     final Publisher bsp2 = new Publisher("MyPublisher");
-    eventloopClient.connect(address.isUnresolved() ? new InetSocketAddress(address.getHostName(), address.getPort()) : address, bsp2);
+    eventloopClient.connect(address, bsp2);
     bsp2.activate(null, 0x7afebabe, 5);
 
     final Subscriber bss2 = new Subscriber("MyPublisher")
@@ -172,7 +175,7 @@ public class SubscriberTest
       }
 
     };
-    eventloopClient.connect(address.isUnresolved() ? new InetSocketAddress(address.getHostName(), address.getPort()) : address, bss2);
+    eventloopClient.connect(address, bss2);
     bss2.activate(null, "BufferServerOutput/BufferServerSubscriber", "MyPublisher", 0, null, 0x7afebabe00000008L, 0);
 
 
@@ -197,12 +200,9 @@ public class SubscriberTest
             windowId++;
             Thread.sleep(5);
           }
-        }
-        catch (InterruptedException ex) {
-        }
-        catch (CancelledKeyException cke) {
-        }
-        finally {
+        } catch (InterruptedException | CancelledKeyException e) {
+          logger.debug("", e);
+        } finally {
           logger.debug("publisher in the middle of window = {}", Codec.getStringWindowId(windowId));
         }
       }
@@ -218,7 +218,7 @@ public class SubscriberTest
     eventloopClient.disconnect(bsp2);
     eventloopClient.disconnect(bss2);
 
-    Assert.assertTrue((bss2.lastPayload.getWindowId() - 8) * 3 < bss2.tupleCount.get());
+    assertTrue((bss2.lastPayload.getWindowId() - 8) * 3 <= bss2.tupleCount.get());
   }
 
 }

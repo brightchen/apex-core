@@ -1,29 +1,27 @@
 /**
- * Copyright (C) 2015 DataTorrent, Inc.
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *         http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package com.datatorrent.stram.engine;
-
-import com.datatorrent.common.util.AsyncFSStorageAgent;
-import com.datatorrent.common.util.BaseOperator;
 
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.concurrent.atomic.AtomicBoolean;
-
-import static java.lang.Thread.sleep;
 
 import org.junit.After;
 import org.junit.Assert;
@@ -32,24 +30,35 @@ import org.junit.Rule;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.datatorrent.api.*;
 import com.datatorrent.api.Context.OperatorContext;
 import com.datatorrent.api.DAG.Locality;
+import com.datatorrent.api.DefaultInputPort;
+import com.datatorrent.api.DefaultOutputPort;
+import com.datatorrent.api.Operator;
 import com.datatorrent.api.Operator.ProcessingMode;
+import com.datatorrent.api.Sink;
 import com.datatorrent.bufferserver.packet.MessageType;
 import com.datatorrent.bufferserver.util.Codec;
+import com.datatorrent.common.util.BaseOperator;
 import com.datatorrent.stram.StramLocalCluster;
 import com.datatorrent.stram.plan.logical.LogicalPlan;
+import com.datatorrent.stram.support.StramTestSupport;
 import com.datatorrent.stram.support.StramTestSupport.TestMeta;
 import com.datatorrent.stram.tuple.EndWindowTuple;
 import com.datatorrent.stram.tuple.Tuple;
+
+import static java.lang.Thread.sleep;
 
 /**
  *
  */
 public class ProcessingModeTests
 {
-  @Rule public TestMeta testMeta = new TestMeta();
+  @Rule
+  public TestMeta testMeta = new TestMeta();
+
+  private LogicalPlan dag;
+
   ProcessingMode processingMode;
   int maxTuples = 30;
 
@@ -61,6 +70,7 @@ public class ProcessingModeTests
   @Before
   public void setup() throws IOException
   {
+    dag = StramTestSupport.createDAG(testMeta);
     StreamingContainer.eventloop.start();
   }
 
@@ -76,11 +86,9 @@ public class ProcessingModeTests
     CollectorOperator.collection.clear();
     CollectorOperator.duplicates.clear();
 
-    LogicalPlan dag = new LogicalPlan();
     dag.getAttributes().put(LogicalPlan.CHECKPOINT_WINDOW_COUNT, 2);
     dag.getAttributes().put(LogicalPlan.STREAMING_WINDOW_SIZE_MILLIS, 300);
     dag.getAttributes().put(LogicalPlan.CONTAINERS_MAX_COUNT, 1);
-    dag.setAttribute(OperatorContext.STORAGE_AGENT, new AsyncFSStorageAgent(testMeta.dir + "/localPath", testMeta.dir, null));
     RecoverableInputOperator rip = dag.addOperator("LongGenerator", RecoverableInputOperator.class);
     rip.setMaximumTuples(maxTuples);
     rip.setSimulateFailure(true);
@@ -102,8 +110,6 @@ public class ProcessingModeTests
     CollectorOperator.collection.clear();
     CollectorOperator.duplicates.clear();
 
-    LogicalPlan dag = new LogicalPlan();
-    dag.setAttribute(OperatorContext.STORAGE_AGENT, new AsyncFSStorageAgent(testMeta.dir + "/localPath", testMeta.dir, null));
     dag.getAttributes().put(LogicalPlan.CHECKPOINT_WINDOW_COUNT, 2);
     dag.getAttributes().put(LogicalPlan.STREAMING_WINDOW_SIZE_MILLIS, 300);
     dag.getAttributes().put(LogicalPlan.CONTAINERS_MAX_COUNT, 1);
@@ -127,8 +133,6 @@ public class ProcessingModeTests
     CollectorOperator.collection.clear();
     CollectorOperator.duplicates.clear();
 
-    LogicalPlan dag = new LogicalPlan();
-    dag.setAttribute(OperatorContext.STORAGE_AGENT, new AsyncFSStorageAgent(testMeta.dir + "/localPath", testMeta.dir, null));
     dag.getAttributes().put(LogicalPlan.CHECKPOINT_WINDOW_COUNT, 2);
     dag.getAttributes().put(LogicalPlan.STREAMING_WINDOW_SIZE_MILLIS, 300);
     dag.getAttributes().put(LogicalPlan.CONTAINERS_MAX_COUNT, 1);
@@ -160,8 +164,7 @@ public class ProcessingModeTests
         logger.debug("adding the tuple {}", Codec.getStringWindowId(tuple));
         if (collection.contains(tuple)) {
           duplicates.add(tuple);
-        }
-        else {
+        } else {
           collection.add(tuple);
         }
       }
@@ -258,9 +261,9 @@ public class ProcessingModeTests
     map.put(OperatorContext.PROCESSING_MODE, processingMode);
 
     final GenericNode node = new GenericNode(new MultiInputOperator(),
-                                             new com.datatorrent.stram.engine.OperatorContext(1, map, null));
-    DefaultReservoir reservoir1 = new DefaultReservoir("input1", 1024);
-    DefaultReservoir reservoir2 = new DefaultReservoir("input1", 1024);
+        new com.datatorrent.stram.engine.OperatorContext(1, map, null));
+    AbstractReservoir reservoir1 = AbstractReservoir.newReservoir("input1", 1024);
+    AbstractReservoir reservoir2 = AbstractReservoir.newReservoir("input1", 1024);
     node.connectInputPort("input1", reservoir1);
     node.connectInputPort("input2", reservoir2);
     node.connectOutputPort("output", new Sink<Object>()
@@ -356,8 +359,7 @@ public class ProcessingModeTests
         long windowId = t.getWindowId();
         Assert.assertTrue("Valid Window Id", windowId == 1 || windowId == 2 || windowId == 4 || windowId == 5);
         Assert.assertTrue("Valid Tuple Type", t.getType() == MessageType.BEGIN_WINDOW || t.getType() == MessageType.END_WINDOW);
-      }
-      else {
+      } else {
         switch (((Integer)o).intValue()) {
           case 101:
           case 201:

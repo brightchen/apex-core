@@ -1,17 +1,20 @@
 /**
- * Copyright (C) 2015 DataTorrent, Inc.
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *         http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package com.datatorrent.stram.engine;
 
@@ -26,7 +29,6 @@ import com.datatorrent.api.Operator;
 import com.datatorrent.api.Operator.InputPort;
 import com.datatorrent.api.Sink;
 import com.datatorrent.stram.plan.logical.Operators.PortContextPair;
-import com.datatorrent.stram.stream.OiOStream;
 import com.datatorrent.stram.tuple.Tuple;
 
 /**
@@ -48,11 +50,11 @@ public class OiONode extends GenericNode
     super(operator, context);
   }
 
-  class ControlSink implements Sink<Tuple>
+  private class ControlSink implements Sink<Tuple>
   {
     final SweepableReservoir reservoir;
 
-    ControlSink(SweepableReservoir sr)
+    private ControlSink(SweepableReservoir sr)
     {
       reservoir = sr;
     }
@@ -85,12 +87,12 @@ public class OiONode extends GenericNode
           break;
 
         case CHECKPOINT:
+          dagCheckpointOffsetCount = 0;
           if (lastCheckpointWindowId < t.getWindowId() && !doCheckpoint) {
             if (checkpointWindowCount == 0) {
               checkpoint(t.getWindowId());
               lastCheckpointWindowId = t.getWindowId();
-            }
-            else {
+            } else {
               doCheckpoint = true;
             }
 
@@ -156,11 +158,9 @@ public class OiONode extends GenericNode
 
   }
 
-  @Override
-  public void connectInputPort(String port, SweepableReservoir reservoir)
+  public Sink<Tuple> getControlSink(SweepableReservoir reservoir)
   {
-    ((OiOStream)reservoir).setControlSink(new ControlSink(reservoir));
-    super.connectInputPort(port, reservoir);
+    return new ControlSink(reservoir);
   }
 
   @SuppressWarnings("unused")

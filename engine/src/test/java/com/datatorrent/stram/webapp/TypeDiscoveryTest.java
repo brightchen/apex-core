@@ -1,17 +1,20 @@
 /**
- * Copyright (C) 2015 DataTorrent, Inc.
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *         http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package com.datatorrent.stram.webapp;
 
@@ -27,47 +30,61 @@ import org.junit.Assert;
 import org.junit.Test;
 
 import com.google.common.collect.Maps;
-import com.datatorrent.common.util.BaseOperator;
+
 import com.datatorrent.api.DefaultInputPort;
 import com.datatorrent.api.DefaultOutputPort;
 import com.datatorrent.api.Operator;
+import com.datatorrent.common.util.BaseOperator;
 
 public class TypeDiscoveryTest
 {
 
-  private static interface GenericInterface<T> {
+  private static interface GenericInterface<T>
+  {
   }
 
-  private static class StringOutputPort extends DefaultOutputPort<String> {
-    public StringOutputPort(Operator operator) {
+  private static class StringOutputPort extends DefaultOutputPort<String>
+  {
+    public StringOutputPort(Operator operator)
+    {
       super();
     }
   }
 
-  private static class A<K> {
+  private static class A<K>
+  {
 
   }
 
-  private static class B<T extends Number> extends A {
+  private static class B<T extends Number> extends A
+  {
 
   }
 
-  private static class GenericOutputPort extends DefaultOutputPort<B<Number>> {
-    public GenericOutputPort(Operator operator) {
+  private static class GenericOutputPort extends DefaultOutputPort<B<Number>>
+  {
+    public GenericOutputPort(Operator operator)
+    {
       super();
     }
   }
 
-  private static class GenericSubClassOutputPort extends GenericOutputPort {
-    public GenericSubClassOutputPort(Operator operator) {
+  private static class GenericSubClassOutputPort extends GenericOutputPort
+  {
+    public GenericSubClassOutputPort(Operator operator)
+    {
       super(operator);
     }
   }
 
-  static class ParameterizedOperator<T0, T1 extends Map<String, ? extends T0>, T2 extends Number> extends BaseOperator implements GenericInterface<T1> {
-    final InputPort<T1> inputT1 = new DefaultInputPort<T1>() {
+  static class ParameterizedOperator<T0, T1 extends Map<String, ? extends T0>, T2 extends Number>
+      extends BaseOperator implements GenericInterface<T1>
+  {
+    final InputPort<T1> inputT1 = new DefaultInputPort<T1>()
+    {
       @Override
-      public void process(T1 tuple) {
+      public void process(T1 tuple)
+      {
       }
     };
     final OutputPort<T2> outportT2 = new DefaultOutputPort<T2>();
@@ -81,10 +98,13 @@ public class TypeDiscoveryTest
   {
   }
 
-  static class SpecializedOperator extends BaseOperator {
-    final InputPort<String> inputT1 = new DefaultInputPort<String>() {
+  static class SpecializedOperator extends BaseOperator
+  {
+    final InputPort<String> inputT1 = new DefaultInputPort<String>()
+    {
       @Override
-      public void process(String tuple) {
+      public void process(String tuple)
+      {
       }
     };
     final OutputPort<Map<String, Number>> outportT2 = new DefaultOutputPort<Map<String, Number>>();
@@ -104,7 +124,7 @@ public class TypeDiscoveryTest
     String[] classFilePath = OperatorDiscoveryTest.getClassFileInClasspath();
     OperatorDiscoverer od = new OperatorDiscoverer(classFilePath);
     od.buildTypeGraph();
-    
+
     JSONObject Desc = od.describeClassByASM(ExtendsParameterizedOperator.class.getName());
     JSONArray json = Desc.getJSONArray("portTypeInfo");
 
@@ -156,11 +176,11 @@ public class TypeDiscoveryTest
     String[] classFilePath = OperatorDiscoveryTest.getClassFileInClasspath();
     OperatorDiscoverer od = new OperatorDiscoverer(classFilePath);
     od.buildTypeGraph();
-    
+
     JSONObject Desc = od.describeClassByASM(StringParameterOperator.class.getName());
     JSONArray json = Desc.getJSONArray("portTypeInfo");
     String debug = "\n(ASM)type info for " + StringParameterOperator.class + ":\n" + Desc.toString(2) + "\n";
-    
+
     ObjectMapper mapper = new ObjectMapper();
     JsonNode root = mapper.readTree(json.toString(2));
     String val = root.get(0).path("name").asText();
@@ -169,7 +189,6 @@ public class TypeDiscoveryTest
     val = root.get(0).path("type").asText();
     Assert.assertEquals(debug + "port type", "java.lang.String", val);
   }
-
 
   static class SubClass<K> extends ParameterizedTypeOperator<K>
   {
@@ -186,11 +205,11 @@ public class TypeDiscoveryTest
     String[] classFilePath = OperatorDiscoveryTest.getClassFileInClasspath();
     OperatorDiscoverer od = new OperatorDiscoverer(classFilePath);
     od.buildTypeGraph();
-    
+
     JSONObject Desc = od.describeClassByASM(SubSubClass.class.getName());
     JSONArray json = Desc.getJSONArray("portTypeInfo");
     String debug = "\n(ASM)type info for " + SubSubClass.class + ":\n" + Desc.toString(2) + "\n";
-   
+
     ObjectMapper mapper = new ObjectMapper();
     JsonNode root = mapper.readTree(json.toString(2));
     String val = root.get(0).path("name").asText();

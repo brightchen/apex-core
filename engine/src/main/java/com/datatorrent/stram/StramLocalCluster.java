@@ -1,17 +1,20 @@
 /**
- * Copyright (C) 2015 DataTorrent, Inc.
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *         http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package com.datatorrent.stram;
 
@@ -24,6 +27,7 @@ import java.net.SocketAddress;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -35,14 +39,12 @@ import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.ipc.ProtocolSignature;
 import org.apache.hadoop.net.NetUtils;
 
-import com.datatorrent.api.Context;
 import com.datatorrent.api.DAG;
 import com.datatorrent.api.LocalMode.Controller;
 import com.datatorrent.api.Operator;
 import com.datatorrent.bufferserver.server.Server;
 import com.datatorrent.bufferserver.storage.DiskStorage;
 import com.datatorrent.common.util.AsyncFSStorageAgent;
-import com.datatorrent.common.util.FSStorageAgent;
 import com.datatorrent.stram.StreamingContainerAgent.ContainerStartRequest;
 import com.datatorrent.stram.StreamingContainerManager.ContainerResource;
 import com.datatorrent.stram.api.StreamingContainerUmbilicalProtocol;
@@ -72,11 +74,12 @@ public class StramLocalCluster implements Runnable, Controller
   private InetSocketAddress bufferServerAddress;
   private boolean perContainerBufferServer;
   private Server bufferServer = null;
-  private final Map<String, LocalStreamingContainer> childContainers = new ConcurrentHashMap<String, LocalStreamingContainer>();
+  private final Map<String, LocalStreamingContainer> childContainers = new ConcurrentHashMap<>();
   private int containerSeq = 0;
   private boolean appDone = false;
-  private final Map<String, StreamingContainer> injectShutdown = new ConcurrentHashMap<String, StreamingContainer>();
+  private final Map<String, StreamingContainer> injectShutdown = new ConcurrentHashMap<>();
   private boolean heartbeatMonitoringEnabled = true;
+  private Callable<Boolean> exitCondition;
 
   public interface MockComponentFactory
   {
@@ -95,8 +98,7 @@ public class StramLocalCluster implements Runnable, Controller
     }
 
     @Override
-    public ProtocolSignature getProtocolSignature(String protocol,
-            long clientVersion, int clientMethodsHash) throws IOException
+    public ProtocolSignature getProtocolSignature(String protocol, long clientVersion, int clientMethodsHash) throws IOException
     {
       throw new UnsupportedOperationException("not implemented in local mode");
     }
@@ -106,8 +108,7 @@ public class StramLocalCluster implements Runnable, Controller
     {
       try {
         log(containerId, msg);
-      }
-      catch (IOException ex) {
+      } catch (IOException ex) {
         // ignore
       }
     }
@@ -143,8 +144,7 @@ public class StramLocalCluster implements Runnable, Controller
           rsp = SerializationUtils.clone(rsp);
         }
         return rsp;
-      }
-      finally {
+      } finally {
         LocalStreamingContainer c = childContainers.get(msg.getContainerId());
         synchronized (c.heartbeatCount) {
           c.heartbeatCount.incrementAndGet();
@@ -178,13 +178,11 @@ public class StramLocalCluster implements Runnable, Controller
         // main thread enters heartbeat loop
         stramChild.heartbeatLoop();
         hasError = false;
-      }
-      finally {
+      } finally {
         // teardown
         try {
           stramChild.teardown();
-        }
-        catch (Exception e) {
+        } catch (Exception e) {
           if (!hasError) {
             throw e;
           }
@@ -264,12 +262,10 @@ public class StramLocalCluster implements Runnable, Controller
       try {
         StreamingContainerContext ctx = umbilical.getInitContext(containerId);
         LocalStreamingContainer.run(child, ctx);
-      }
-      catch (Exception e) {
+      } catch (Exception e) {
         LOG.error("Container {} failed", containerId, e);
         throw new RuntimeException(e);
-      }
-      finally {
+      } finally {
         childContainers.remove(containerId);
         LOG.info("Container {} terminating.", containerId);
       }
@@ -287,11 +283,9 @@ public class StramLocalCluster implements Runnable, Controller
     String pathUri = CLUSTER_WORK_DIR.toURI().toString();
     try {
       FileContext.getLocalFSFileContext().delete(new Path(pathUri/*CLUSTER_WORK_DIR.getAbsolutePath()*/), true);
-    }
-    catch (IllegalArgumentException e) {
+    } catch (IllegalArgumentException e) {
       throw e;
-    }
-    catch (IOException e) {
+    } catch (IOException e) {
       throw new RuntimeException("could not cleanup test dir", e);
     }
 
@@ -424,6 +418,11 @@ public class StramLocalCluster implements Runnable, Controller
     this.perContainerBufferServer = perContainerBufferServer;
   }
 
+  public void setExitCondition(Callable<Boolean> exitCondition)
+  {
+    this.exitCondition = exitCondition;
+  }
+
   @Override
   public void run()
   {
@@ -473,6 +472,14 @@ public class StramLocalCluster implements Runnable, Controller
         appDone = true;
       }
 
+      try {
+        if (exitCondition != null && exitCondition.call()) {
+          appDone = true;
+        }
+      } catch (Exception ex) {
+        break;
+      }
+
       if (Thread.interrupted()) {
         break;
       }
@@ -480,8 +487,7 @@ public class StramLocalCluster implements Runnable, Controller
       if (!appDone) {
         try {
           Thread.sleep(1000);
-        }
-        catch (InterruptedException e) {
+        } catch (InterruptedException e) {
           LOG.info("Sleep interrupted " + e.getMessage());
           break;
         }
@@ -492,6 +498,8 @@ public class StramLocalCluster implements Runnable, Controller
       injectShutdown.put(lsc.getContainerId(), lsc);
       lsc.triggerHeartbeat();
     }
+
+    dnmgr.teardown();
 
     LOG.info("Application finished.");
     if (!perContainerBufferServer) {

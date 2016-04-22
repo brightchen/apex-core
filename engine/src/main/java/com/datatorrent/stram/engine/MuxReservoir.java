@@ -1,26 +1,33 @@
 /**
- * Copyright (C) 2015 DataTorrent, Inc.
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *         http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package com.datatorrent.stram.engine;
 
-import com.datatorrent.stram.tuple.Tuple;
-import com.datatorrent.api.Sink;
-import com.datatorrent.netlet.util.CircularBuffer;
 import java.util.HashMap;
+import java.util.Iterator;
+import java.util.Queue;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import com.datatorrent.api.Sink;
+import com.datatorrent.netlet.util.CircularBuffer;
+import com.datatorrent.stram.tuple.Tuple;
 
 /**
  * <p>Abstract MuxReservoir class.</p>
@@ -31,7 +38,7 @@ public abstract class MuxReservoir
 {
   @SuppressWarnings("VolatileArrayField")
   private volatile SubReservoir[] reservoirs = new SubReservoir[0];
-  private HashMap<String, SubReservoir> reservoirMap = new HashMap<String, SubReservoir>();
+  private HashMap<String, SubReservoir> reservoirMap = new HashMap<>();
 
   public SweepableReservoir acquireReservoir(String id, int capacity)
   {
@@ -68,7 +75,7 @@ public abstract class MuxReservoir
     return r;
   }
 
-  public abstract Reservoir getMasterReservoir();
+  protected abstract Queue getQueue();
 
   class SubReservoir extends CircularBuffer<Object> implements SweepableReservoir
   {
@@ -81,12 +88,26 @@ public abstract class MuxReservoir
     }
 
     @Override
+    public int size(final boolean dataTupleAware)
+    {
+      int size = size();
+      if (dataTupleAware) {
+        Iterator<Object> iterator = getFrozenIterator();
+        while (iterator.hasNext()) {
+          if (iterator.next() instanceof Tuple) {
+            size--;
+          }
+        }
+      }
+      return size;
+    }
+
+    @Override
     public Sink<Object> setSink(Sink<Object> sink)
     {
       try {
         return this.sink;
-      }
-      finally {
+      } finally {
         this.sink = sink;
       }
     }
@@ -107,14 +128,14 @@ public abstract class MuxReservoir
         count += size;
       }
 
-      final Reservoir masterReservoir = getMasterReservoir();
-      synchronized (masterReservoir) {
-        /* find out the minimum remaining capacity in all the other buffers and consume those many tuples from bufferserver */
-        int min = masterReservoir.size();
-        if (min == 0) {
+      final Queue queue = getQueue();
+      synchronized (queue) {
+        if (queue.isEmpty()) {
           return null;
         }
 
+        /* find out the minimum remaining capacity in all the other buffers and consume those many tuples from bufferserver */
+        int min = Integer.MAX_VALUE;
         for (int i = reservoirs.length; i-- > 0;) {
           if (reservoirs[i].remainingCapacity() < min) {
             min = reservoirs[i].remainingCapacity();
@@ -122,7 +143,10 @@ public abstract class MuxReservoir
         }
 
         while (min-- > 0) {
-          Object o = masterReservoir.remove();
+          Object o = queue.poll();
+          if (o == null) {
+            break;
+          }
           for (int i = reservoirs.length; i-- > 0;) {
             reservoirs[i].add(o);
           }
@@ -137,8 +161,7 @@ public abstract class MuxReservoir
     {
       try {
         return count;
-      }
-      finally {
+      } finally {
         if (reset) {
           count = 0;
         }

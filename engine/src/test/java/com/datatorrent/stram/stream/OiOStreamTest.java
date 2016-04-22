@@ -1,21 +1,23 @@
 /**
- * Copyright (C) 2015 DataTorrent, Inc.
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *         http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package com.datatorrent.stram.stream;
 
-import com.datatorrent.common.util.BaseOperator;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -29,10 +31,13 @@ import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.datatorrent.api.*;
 import com.datatorrent.api.Context.OperatorContext;
 import com.datatorrent.api.DAG.Locality;
-
+import com.datatorrent.api.DefaultInputPort;
+import com.datatorrent.api.DefaultOutputPort;
+import com.datatorrent.api.InputOperator;
+import com.datatorrent.api.Operator;
+import com.datatorrent.common.util.BaseOperator;
 import com.datatorrent.stram.StramLocalCluster;
 import com.datatorrent.stram.engine.GenericNodeTest.GenericOperator;
 import com.datatorrent.stram.engine.ProcessingModeTests.CollectorOperator;
@@ -66,8 +71,7 @@ public class OiOStreamTest
     try {
       plan.validate();
       Assert.assertTrue("OiO validation", true);
-    }
-    catch (ConstraintViolationException ex) {
+    } catch (ConstraintViolationException ex) {
       Assert.fail("OIO Single InputPort");
     }
   }
@@ -88,8 +92,7 @@ public class OiOStreamTest
     try {
       plan.validate();
       Assert.assertTrue("OiOiO validation", true);
-    }
-    catch (ConstraintViolationException ex) {
+    } catch (ConstraintViolationException ex) {
       Assert.fail("OiOiO validation");
     }
   }
@@ -105,8 +108,7 @@ public class OiOStreamTest
     try {
       plan.validate();
       Assert.assertTrue("OiO validation", true);
-    }
-    catch (ConstraintViolationException ex) {
+    } catch (ConstraintViolationException ex) {
       Assert.fail("OiO Single Connected InputPort");
     }
   }
@@ -124,11 +126,9 @@ public class OiOStreamTest
     try {
       plan.validate();
       Assert.fail("OIO Both InputPorts");
-    }
-    catch (ConstraintViolationException ex) {
+    } catch (ConstraintViolationException ex) {
       Assert.assertTrue("OiO validation passed", true);
-    }
-    catch (ValidationException ex) {
+    } catch (ValidationException ex) {
       Assert.assertTrue("OiO validation passed", true);
     }
 
@@ -136,11 +136,9 @@ public class OiOStreamTest
     try {
       plan.validate();
       Assert.fail("OIO First InputPort");
-    }
-    catch (ConstraintViolationException ex) {
+    } catch (ConstraintViolationException ex) {
       Assert.assertTrue("OiO validation passed", true);
-    }
-    catch (ValidationException ex) {
+    } catch (ValidationException ex) {
       Assert.assertTrue("OiO validation passed", true);
     }
 
@@ -149,11 +147,9 @@ public class OiOStreamTest
     try {
       plan.validate();
       Assert.fail("OIO Second InputPort");
-    }
-    catch (ConstraintViolationException ex) {
+    } catch (ConstraintViolationException ex) {
       Assert.assertTrue("OiO validation passed", true);
-    }
-    catch (ValidationException ex) {
+    } catch (ValidationException ex) {
       Assert.assertTrue("OiO validation passed", true);
     }
   }
@@ -176,8 +172,7 @@ public class OiOStreamTest
     try {
       plan.validate();
       Assert.assertTrue("OiOiO diamond validation", true);
-    }
-    catch (ConstraintViolationException ex) {
+    } catch (ConstraintViolationException ex) {
       Assert.fail("OIOIO diamond validation");
     }
   }
@@ -211,8 +206,7 @@ public class OiOStreamTest
     try {
       plan.validate();
       Assert.assertTrue("OiOiO extended diamond validation", true);
-    }
-    catch (ConstraintViolationException ex) {
+    } catch (ConstraintViolationException ex) {
       Assert.fail("OIOIO extended diamond validation");
     }
     PhysicalPlan physicalPlan = new PhysicalPlan(plan, new TestPlanContext());
@@ -239,11 +233,9 @@ public class OiOStreamTest
     try {
       plan.validate();
       Assert.fail("OIOIO negative diamond");
-    }
-    catch (ConstraintViolationException ex) {
+    } catch (ConstraintViolationException ex) {
       Assert.assertTrue("OIOIO negative diamond", true);
-    }
-    catch (ValidationException ex) {
+    } catch (ValidationException ex) {
       Assert.assertTrue("OIOIO negative diamond", true);
     }
   }
@@ -270,8 +262,7 @@ public class OiOStreamTest
     try {
       plan.validate();
       Assert.assertTrue("OiOiO extended diamond validation", true);
-    }
-    catch (ConstraintViolationException ex) {
+    } catch (ConstraintViolationException ex) {
       Assert.fail("OIOIO extended diamond validation");
     }
   }
@@ -298,11 +289,9 @@ public class OiOStreamTest
     try {
       plan.validate();
       Assert.fail("OiOiO extended diamond validation");
-    }
-    catch (ConstraintViolationException ex) {
+    } catch (ConstraintViolationException ex) {
       Assert.assertTrue("OiOiO extended diamond validation", true);
-    }
-    catch (ValidationException ex) {
+    } catch (ValidationException ex) {
       Assert.assertTrue("OiOiO extended diamond validation", true);
     }
   }
@@ -430,7 +419,8 @@ public class OiOStreamTest
     public final transient DefaultOutputPort<Long> output = new DefaultOutputPort<Long>();
   }
 
-  public static class ThreadIdValidatingGenericIntermediateOperatorWithTwoOutputPorts extends ThreadIdValidatingGenericIntermediateOperator {
+  public static class ThreadIdValidatingGenericIntermediateOperatorWithTwoOutputPorts extends ThreadIdValidatingGenericIntermediateOperator
+  {
     public final transient DefaultOutputPort<Long> output2 = new DefaultOutputPort<Long>();
   }
 
@@ -571,9 +561,9 @@ public class OiOStreamTest
 
     Assert.assertEquals("nonOIO: Number of threads", 2, ThreadIdValidatingGenericIntermediateOperator.threadList.size());
     Assert.assertFalse("nonOIO: Thread Ids of input operator and intermediate operator1",
-                       ThreadIdValidatingInputOperator.threadId == ThreadIdValidatingGenericIntermediateOperator.threadList.get(0));
+        ThreadIdValidatingInputOperator.threadId == ThreadIdValidatingGenericIntermediateOperator.threadList.get(0));
     Assert.assertFalse("nonOIO: Thread Ids of input operator and intermediate operator2",
-                       ThreadIdValidatingInputOperator.threadId == ThreadIdValidatingGenericIntermediateOperator.threadList.get(1));
+        ThreadIdValidatingInputOperator.threadId == ThreadIdValidatingGenericIntermediateOperator.threadList.get(1));
     Assert.assertNotEquals("nonOIO: Thread Ids of two intermediate operators", ThreadIdValidatingGenericIntermediateOperator.threadList.get(0), ThreadIdValidatingGenericIntermediateOperator.threadList.get(1));
     Assert.assertNotEquals("nonOIO: Thread Ids of input and output operators", ThreadIdValidatingInputOperator.threadId, ThreadIdValidatingGenericOperatorWithTwoInputPorts.threadId);
 
@@ -591,9 +581,9 @@ public class OiOStreamTest
 
     Assert.assertEquals("OIO: Number of threads", 2, ThreadIdValidatingGenericIntermediateOperator.threadList.size());
     Assert.assertEquals("OIO: Thread Ids of input operator and intermediate operator1",
-                        ThreadIdValidatingInputOperator.threadId, (long)ThreadIdValidatingGenericIntermediateOperator.threadList.get(0));
+        ThreadIdValidatingInputOperator.threadId, (long)ThreadIdValidatingGenericIntermediateOperator.threadList.get(0));
     Assert.assertEquals("OIO: Thread Ids of input operator and intermediate operator2",
-                        ThreadIdValidatingInputOperator.threadId, (long)ThreadIdValidatingGenericIntermediateOperator.threadList.get(1));
+        ThreadIdValidatingInputOperator.threadId, (long)ThreadIdValidatingGenericIntermediateOperator.threadList.get(1));
     Assert.assertEquals("OIO: Thread Ids of two intermediate operators", ThreadIdValidatingGenericIntermediateOperator.threadList.get(0), ThreadIdValidatingGenericIntermediateOperator.threadList.get(1));
     Assert.assertEquals("OIO: Thread Ids of input and output operators", ThreadIdValidatingInputOperator.threadId, ThreadIdValidatingGenericOperatorWithTwoInputPorts.threadId);
   }
@@ -684,7 +674,7 @@ public class OiOStreamTest
 
     Assert.assertEquals("nonOIO: Number of threads", 1, ThreadIdValidatingGenericIntermediateOperatorWithTwoOutputPorts.threadList.size());
     Assert.assertNotEquals("nonOIO: Thread Ids of input operator and intermediate operator",
-                       ThreadIdValidatingInputOperator.threadId, ThreadIdValidatingGenericIntermediateOperatorWithTwoOutputPorts.threadId);
+        ThreadIdValidatingInputOperator.threadId, ThreadIdValidatingGenericIntermediateOperatorWithTwoOutputPorts.threadId);
     Assert.assertNotEquals("nonOIO: Thread Ids of intermediate and output operators", ThreadIdValidatingGenericIntermediateOperatorWithTwoOutputPorts.threadId, ThreadIdValidatingGenericOperatorWithTwoInputPorts.threadId);
     Assert.assertNotEquals("nonOIO: Thread Ids of input and output operators", ThreadIdValidatingInputOperator.threadId, ThreadIdValidatingGenericOperatorWithTwoInputPorts.threadId);
 
@@ -701,9 +691,10 @@ public class OiOStreamTest
 
     Assert.assertEquals("OIO: Number of threads", 1, ThreadIdValidatingGenericIntermediateOperatorWithTwoOutputPorts.threadList.size());
     Assert.assertNotEquals("OIO: Thread Ids of input operator and intermediate operator",
-                        ThreadIdValidatingInputOperator.threadId, ThreadIdValidatingGenericIntermediateOperatorWithTwoOutputPorts.threadId);
+        ThreadIdValidatingInputOperator.threadId, ThreadIdValidatingGenericIntermediateOperatorWithTwoOutputPorts.threadId);
     Assert.assertEquals("OIO: Thread Ids of intermediate and output operators", ThreadIdValidatingGenericIntermediateOperatorWithTwoOutputPorts.threadId, ThreadIdValidatingGenericOperatorWithTwoInputPorts.threadId);
     Assert.assertNotEquals("OIO: Thread Ids of input and output operators", ThreadIdValidatingInputOperator.threadId, ThreadIdValidatingGenericOperatorWithTwoInputPorts.threadId);
   }
+
   private static final Logger logger = LoggerFactory.getLogger(OiOStreamTest.class);
 }

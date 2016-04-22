@@ -1,20 +1,24 @@
 /**
- * Copyright (C) 2015 DataTorrent, Inc.
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *         http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package com.datatorrent.stram;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
@@ -23,38 +27,52 @@ import java.util.concurrent.FutureTask;
 import javax.validation.ValidationException;
 
 import org.junit.Assert;
+import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 
+import com.google.common.collect.Sets;
+
+import com.datatorrent.api.AffinityRule;
+import com.datatorrent.api.AffinityRule.Type;
+import com.datatorrent.api.AffinityRulesSet;
+import com.datatorrent.api.Context.DAGContext;
 import com.datatorrent.api.DAG.Locality;
 import com.datatorrent.api.StorageAgent;
-
 import com.datatorrent.common.util.AsyncFSStorageAgent;
 import com.datatorrent.common.util.FSStorageAgent;
 import com.datatorrent.stram.engine.GenericTestOperator;
 import com.datatorrent.stram.engine.OperatorContext;
 import com.datatorrent.stram.engine.TestGeneratorInputOperator;
 import com.datatorrent.stram.plan.TestPlanContext;
-import com.datatorrent.stram.plan.logical.requests.CreateOperatorRequest;
 import com.datatorrent.stram.plan.logical.LogicalPlan;
 import com.datatorrent.stram.plan.logical.LogicalPlan.OperatorMeta;
+import com.datatorrent.stram.plan.logical.requests.CreateOperatorRequest;
 import com.datatorrent.stram.plan.logical.requests.LogicalPlanRequest;
 import com.datatorrent.stram.plan.physical.PTContainer;
 import com.datatorrent.stram.plan.physical.PTOperator;
 import com.datatorrent.stram.plan.physical.PhysicalPlan;
 import com.datatorrent.stram.plan.physical.PlanModifier;
+import com.datatorrent.stram.support.StramTestSupport;
 import com.datatorrent.stram.support.StramTestSupport.TestMeta;
-import com.google.common.collect.Sets;
+
 
 public class LogicalPlanModificationTest
 {
-  @Rule public TestMeta testMeta = new TestMeta();
+  private LogicalPlan dag;
+
+  @Rule
+  public TestMeta testMeta = new TestMeta();
+
+  @Before
+  public void setup()
+  {
+    dag = StramTestSupport.createDAG(testMeta);
+  }
 
   @Test
   public void testAddOperator()
   {
-    LogicalPlan dag = new LogicalPlan();
-
     GenericTestOperator o1 = dag.addOperator("o1", GenericTestOperator.class);
     GenericTestOperator o2 = dag.addOperator("o2", GenericTestOperator.class);
     GenericTestOperator o3 = dag.addOperator("o3", GenericTestOperator.class);
@@ -89,9 +107,64 @@ public class LogicalPlanModificationTest
   }
 
   @Test
+  public void testAddOperatorWithAffinityRules()
+  {
+    GenericTestOperator o1 = dag.addOperator("o1", GenericTestOperator.class);
+    GenericTestOperator o2 = dag.addOperator("o2", GenericTestOperator.class);
+    GenericTestOperator o3 = dag.addOperator("o3", GenericTestOperator.class);
+
+    dag.addStream("o1.outport1", o1.outport1, o2.inport1);
+    dag.addStream("o2.outport1", o2.outport1, o3.inport1);
+
+    TestPlanContext ctx = new TestPlanContext();
+    dag.setAttribute(OperatorContext.STORAGE_AGENT, ctx);
+    PhysicalPlan plan = new PhysicalPlan(dag, ctx);
+    ctx.deploy.clear();
+    ctx.undeploy.clear();
+
+    Assert.assertEquals("containers", 3, plan.getContainers().size());
+
+    AffinityRulesSet ruleSet = new AffinityRulesSet();
+    List<AffinityRule> rules = new ArrayList<>();
+    ruleSet.setAffinityRules(rules);
+    rules.add(new AffinityRule(Type.AFFINITY, Locality.CONTAINER_LOCAL, false, "o1", "added1"));
+    rules.add(new AffinityRule(Type.ANTI_AFFINITY, Locality.NODE_LOCAL, false, "o3", "added1"));
+    dag.setAttribute(DAGContext.AFFINITY_RULES_SET, ruleSet);
+
+    PlanModifier pm = new PlanModifier(plan);
+    GenericTestOperator added1 = new GenericTestOperator();
+    pm.addOperator("added1", added1);
+
+    pm.addStream("added1.outport1", added1.outport1, o3.inport2);
+
+    Assert.assertEquals("undeploy " + ctx.undeploy, 0, ctx.undeploy.size());
+    Assert.assertEquals("deploy " + ctx.deploy, 0, ctx.deploy.size());
+
+    pm.applyChanges(ctx);
+
+    Assert.assertEquals("containers post change", 4, plan.getContainers().size());
+
+    Assert.assertEquals("undeploy " + ctx.undeploy, 1, ctx.undeploy.size());
+    Assert.assertEquals("deploy " + ctx.deploy, 2, ctx.deploy.size());
+
+    // Validate affinity rules are applied
+    for (PTContainer c : plan.getContainers()) {
+      if (c.getOperators().contains("added1")) {
+        Assert.assertEquals("Operators O1 and added1 should be in the same container as per affinity rule", 2, c.getOperators().size());
+        Assert.assertEquals("Operators O1 and added1 should be in the same container as per affinity rule", "o1", c.getOperators().get(0).getOperatorMeta().getName());
+        Assert.assertEquals("Operators O1 and added1 should be in the same container as per affinity rule", "added1", c.getOperators().get(1).getOperatorMeta().getName());
+
+        Set<PTContainer> antiAffinityList = c.getStrictAntiPrefs();
+        Assert.assertEquals("There should be one container in antiaffinity list", 1, antiAffinityList.size());
+        List<PTOperator> antiAffinityOperators = antiAffinityList.iterator().next().getOperators();
+        Assert.assertEquals("AntiAffinity operators should containn operator O3", antiAffinityOperators.iterator().next().getOperatorMeta().getName(), "o3");
+      }
+    }
+  }
+
+  @Test
   public void testSetOperatorProperty()
   {
-    LogicalPlan dag = new LogicalPlan();
     GenericTestOperator o1 = dag.addOperator("o1", GenericTestOperator.class);
     OperatorMeta o1Meta = dag.getMeta(o1);
 
@@ -118,8 +191,6 @@ public class LogicalPlanModificationTest
   @Test
   public void testRemoveOperator()
   {
-    LogicalPlan dag = new LogicalPlan();
-
     GenericTestOperator o1 = dag.addOperator("o1", GenericTestOperator.class);
     OperatorMeta o1Meta = dag.getMeta(o1);
     GenericTestOperator o12 = dag.addOperator("o12", GenericTestOperator.class);
@@ -149,6 +220,7 @@ public class LogicalPlanModificationTest
       pm.removeOperator(o2Meta.getName());
       Assert.fail("validation error (connected output stream) expected");
     } catch (ValidationException ve) {
+      // all good
     }
 
     // remove output stream required before removing operator
@@ -168,6 +240,7 @@ public class LogicalPlanModificationTest
       plan.getOperators(o2Meta);
       Assert.fail("removed from physical plan: " + o2Meta);
     } catch (Exception e) {
+      // all good
     }
     Assert.assertEquals("containers " + plan.getContainers(), 3, plan.getContainers().size());
     Assert.assertEquals("physical operators " + plan.getAllOperators(), 3, plan.getAllOperators().size());
@@ -188,8 +261,6 @@ public class LogicalPlanModificationTest
   @Test
   public void testRemoveOperator2()
   {
-    LogicalPlan dag = new LogicalPlan();
-
     GenericTestOperator o1 = dag.addOperator("o1", GenericTestOperator.class);
     OperatorMeta o1Meta = dag.getMeta(o1);
     GenericTestOperator o2 = dag.addOperator("o2", GenericTestOperator.class);
@@ -230,8 +301,6 @@ public class LogicalPlanModificationTest
   @Test
   public void testRemoveStream()
   {
-    LogicalPlan dag = new LogicalPlan();
-
     GenericTestOperator o1 = dag.addOperator("o1", GenericTestOperator.class);
     GenericTestOperator o2 = dag.addOperator("o2", GenericTestOperator.class);
 
@@ -252,8 +321,6 @@ public class LogicalPlanModificationTest
   @Test
   public void testAddStream()
   {
-    LogicalPlan dag = new LogicalPlan();
-
     GenericTestOperator o1 = dag.addOperator("o1", GenericTestOperator.class);
     GenericTestOperator o2 = dag.addOperator("o2", GenericTestOperator.class);
 
@@ -292,10 +359,8 @@ public class LogicalPlanModificationTest
 
   }
 
-  private void testExecutionManager(StorageAgent agent) throws Exception {
-
-    LogicalPlan dag = new LogicalPlan();
-    dag.setAttribute(com.datatorrent.api.Context.DAGContext.APPLICATION_PATH, testMeta.dir);
+  private void testExecutionManager(StorageAgent agent) throws Exception
+  {
     dag.setAttribute(OperatorContext.STORAGE_AGENT, agent);
 
     StreamingContainerManager dnm = new StreamingContainerManager(dag);
@@ -313,9 +378,9 @@ public class LogicalPlanModificationTest
 
     lpmf.get();
 
-    Assert.assertEquals(""+dnm.containerStartRequests, 1, dnm.containerStartRequests.size());
+    Assert.assertEquals("" + dnm.containerStartRequests, 1, dnm.containerStartRequests.size());
     PTContainer c = dnm.containerStartRequests.poll().container;
-    Assert.assertEquals("operators "+c, 1, c.getOperators().size());
+    Assert.assertEquals("operators " + c, 1, c.getOperators().size());
 
     int deployStatusCnt = 0;
     for (PTOperator oper : c.getOperators()) {
@@ -334,13 +399,13 @@ public class LogicalPlanModificationTest
   @Test
   public void testExecutionManagerWithSyncStorageAgent() throws Exception
   {
-    testExecutionManager(new FSStorageAgent(testMeta.dir, null));
+    testExecutionManager(new FSStorageAgent(testMeta.getPath(), null));
   }
 
   @Test
   public void testExecutionManagerWithAsyncStorageAgent() throws Exception
   {
-    testExecutionManager(new AsyncFSStorageAgent(testMeta.dir + "/localPath", testMeta.dir, null));
+    testExecutionManager(new AsyncFSStorageAgent(testMeta.getPath(), null));
   }
 
 }

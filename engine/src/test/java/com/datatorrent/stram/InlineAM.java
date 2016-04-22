@@ -1,17 +1,20 @@
 /**
- * Copyright (C) 2015 DataTorrent, Inc.
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *         http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package com.datatorrent.stram;
 
@@ -42,7 +45,8 @@ import org.apache.hadoop.yarn.util.Records;
  * RM and negotiates a new attempt id. Then it waits for the RM app state to
  * reach be YarnApplicationState.ACCEPTED after which it runs the AM logic.
  */
-public abstract class InlineAM {
+public abstract class InlineAM
+{
   private static final Log LOG = LogFactory.getLog(InlineAM.class);
 
   // Handle to talk to the Resource Manager/Applications Manager
@@ -57,7 +61,8 @@ public abstract class InlineAM {
 
   /**
    */
-  public InlineAM(Configuration conf) throws Exception {
+  public InlineAM(Configuration conf) throws Exception
+  {
 
     appName = "UnmanagedAM";
     amPriority = 0;
@@ -70,7 +75,8 @@ public abstract class InlineAM {
 
   public abstract void runAM(ApplicationAttemptId attemptId) throws Exception;
 
-  public boolean run() throws Exception {
+  public boolean run() throws Exception
+  {
     LOG.info("Starting Client");
 
     // Connect to ResourceManager
@@ -157,7 +163,8 @@ public abstract class InlineAM {
    * @throws YarnRemoteException
    */
   private ApplicationReport monitorApplication(ApplicationId appId,
-      Set<YarnApplicationState> finalState) throws YarnException, IOException {
+      Set<YarnApplicationState> finalState) throws YarnException, IOException
+  {
 
     while (true) {
 

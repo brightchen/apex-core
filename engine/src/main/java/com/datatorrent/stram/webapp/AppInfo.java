@@ -1,30 +1,40 @@
 /**
- * Copyright (C) 2015 DataTorrent, Inc.
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *         http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package com.datatorrent.stram.webapp;
 
-import com.datatorrent.stram.api.AppDataSource;
+import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
+
+import javax.xml.bind.annotation.XmlAccessType;
+import javax.xml.bind.annotation.XmlAccessorType;
+import javax.xml.bind.annotation.XmlRootElement;
+
+import org.apache.hadoop.yarn.util.Times;
+
 import com.datatorrent.api.Attribute;
 import com.datatorrent.api.Attribute.AttributeMap;
 import com.datatorrent.api.AutoMetric;
 import com.datatorrent.api.Context.DAGContext;
 import com.datatorrent.stram.StramAppContext;
+import com.datatorrent.stram.api.AppDataSource;
 import com.datatorrent.stram.util.VersionInfo;
-import java.util.*;
-import javax.xml.bind.annotation.*;
-import org.apache.hadoop.yarn.util.Times;
 
 /**
  *
@@ -44,8 +54,8 @@ import org.apache.hadoop.yarn.util.Times;
 
 @XmlRootElement(name = StramWebServices.PATH_INFO)
 @XmlAccessorType(XmlAccessType.FIELD)
-public class AppInfo {
-
+public class AppInfo
+{
   protected String appId;
   protected String name;
   protected String docLink;
@@ -57,7 +67,7 @@ public class AppInfo {
   protected boolean gatewayConnected;
   protected List<AppDataSource> appDataSources;
   protected Map<String, Object> metrics;
-  public Map<String, Object> attributes;
+  public Map<String, String> attributes;
   public String appMasterTrackingUrl;
   public String version;
   public AppStats stats;
@@ -65,40 +75,46 @@ public class AppInfo {
   /**
    * Default constructor for serialization
    */
-  public AppInfo() {
+  public AppInfo()
+  {
   }
-
 
   @XmlRootElement
   @XmlAccessorType(XmlAccessType.FIELD)
-  public static class AppStats {
+  public static class AppStats
+  {
     @javax.xml.bind.annotation.XmlElement
     @AutoMetric
-    public int getAllocatedContainers() {
+    public int getAllocatedContainers()
+    {
       return 0;
     }
 
     @javax.xml.bind.annotation.XmlElement
     @AutoMetric
-    public int getPlannedContainers() {
+    public int getPlannedContainers()
+    {
       return 0;
     }
 
     @javax.xml.bind.annotation.XmlElement
     @AutoMetric
-    public int getFailedContainers() {
+    public int getFailedContainers()
+    {
       return 0;
     }
 
     @javax.xml.bind.annotation.XmlElement
     @AutoMetric
-    public int getNumOperators() {
+    public int getNumOperators()
+    {
       return 0;
     }
 
     @javax.xml.bind.annotation.XmlElement
     @AutoMetric
-    public long getLatency() {
+    public long getLatency()
+    {
       return 0;
     }
 
@@ -109,7 +125,8 @@ public class AppInfo {
     }
 
     @javax.xml.bind.annotation.XmlElement
-    public List<Integer> getCriticalPath() {
+    public List<Integer> getCriticalPath()
+    {
       return null;
     }
 
@@ -200,7 +217,8 @@ public class AppInfo {
    *
    * @param context
    */
-  public AppInfo(StramAppContext context) {
+  public AppInfo(StramAppContext context)
+  {
     this.appId = context.getApplicationID().toString();
     this.name = context.getApplicationName();
     this.docLink = context.getApplicationDocLink();
@@ -211,10 +229,10 @@ public class AppInfo {
     this.appMasterTrackingUrl = context.getAppMasterTrackingUrl();
     this.stats = context.getStats();
     this.gatewayAddress = context.getGatewayAddress();
-    this.version = VersionInfo.getBuildVersion();
-    this.attributes = new TreeMap<String, Object>();
+    this.version = VersionInfo.APEX_VERSION.getBuildVersion();
+    this.attributes = new TreeMap<>();
     for (Map.Entry<Attribute<Object>, Object> entry : AttributeMap.AttributeInitializer.getAllAttributes(context, DAGContext.class).entrySet()) {
-      this.attributes.put(entry.getKey().getSimpleName(), entry.getValue());
+      this.attributes.put(entry.getKey().getSimpleName(), entry.getKey().codec.toString(entry.getValue()));
     }
     this.gatewayConnected = context.isGatewayConnected();
     this.appDataSources = context.getAppDataSources();
@@ -222,50 +240,52 @@ public class AppInfo {
   }
 
   /**
-   *
    * @return String
    */
-  public String getId() {
+  public String getId()
+  {
     return this.appId;
   }
 
   /**
-   *
    * @return String
    */
-  public String getName() {
+  public String getName()
+  {
     return this.name;
   }
 
   /**
-   *
    * @return String
    */
-  public String getUser() {
+  public String getUser()
+  {
     return this.user;
   }
 
   /**
-   *
    * @return long
    */
-  public long getStartTime() {
+  public long getStartTime()
+  {
     return this.startTime;
   }
 
   /**
-   *
    * @return long
    */
-  public long getElapsedTime() {
+  public long getElapsedTime()
+  {
     return this.elapsedTime;
   }
 
-  public String getAppPath() {
+  public String getAppPath()
+  {
     return this.appPath;
   }
 
-  public String getGatewayAddress() {
+  public String getGatewayAddress()
+  {
     return this.gatewayAddress;
   }
 

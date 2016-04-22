@@ -1,17 +1,20 @@
 /**
- * Copyright (C) 2015 DataTorrent, Inc.
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *         http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package com.datatorrent.stram.util;
 
@@ -39,6 +42,7 @@ public class ConfigUtils
   private static final String RM_HA_PREFIX = YarnConfiguration.RM_PREFIX + "ha.";
   public static final String RM_HA_ENABLED = RM_HA_PREFIX + "enabled";
   public static final String RM_HA_IDS = RM_HA_PREFIX + "rm-ids";
+  public static final String RM_HA_ID = RM_HA_PREFIX + "id";
   public static final boolean DEFAULT_RM_HA_ENABLED = false;
 
   private static String yarnLogDir;
@@ -47,8 +51,8 @@ public class ConfigUtils
   public static InetSocketAddress getRMAddress(YarnConfiguration conf)
   {
     return conf.getSocketAddr(YarnConfiguration.RM_ADDRESS,
-                              YarnConfiguration.DEFAULT_RM_ADDRESS,
-                              YarnConfiguration.DEFAULT_RM_PORT);
+        YarnConfiguration.DEFAULT_RM_ADDRESS,
+        YarnConfiguration.DEFAULT_RM_PORT);
   }
 
   public static String getRMUsername(Configuration conf)
@@ -68,8 +72,7 @@ public class ConfigUtils
   {
     if (HttpConfig.Policy.HTTPS_ONLY == HttpConfig.Policy.fromString(conf.get(YarnConfiguration.YARN_HTTP_POLICY_KEY, YarnConfiguration.YARN_HTTP_POLICY_DEFAULT))) {
       return "https://";
-    }
-    else {
+    } else {
       return "http://";
     }
   }
@@ -110,8 +113,7 @@ public class ConfigUtils
         }
       }
       return value;
-    }
-    finally {
+    } finally {
       yarnLogDir = value;
     }
   }
@@ -123,18 +125,17 @@ public class ConfigUtils
     String logDirs = conf.get(YarnConfiguration.NM_LOG_DIRS);
     if (logDirs.startsWith("${yarn.log.dir}")) {
       return ConfigUtils.getSchemePrefix(conf) + nodeHttpAddress + "/logs" + logDirs.substring("${yarn.log.dir}".length()) + "/" + appId + "/" + containerId;
-    }
-    else {
+    } else {
       try {
         String logDirsPath = new File(logDirs).getCanonicalPath();
         String yarnLogDirPath = new File(getYarnLogDir()).getCanonicalPath();
         if (logDirsPath.startsWith(yarnLogDirPath)) {
-          return ConfigUtils.getSchemePrefix(conf) + nodeHttpAddress + "/logs" + logDirsPath.substring(yarnLogDirPath.length()) + "/" + appId + "/" + containerId;
-        }
-        else {
+          return ConfigUtils.getSchemePrefix(conf) + nodeHttpAddress + "/logs" + logDirsPath
+              .substring(yarnLogDirPath.length()) + "/" + appId + "/" + containerId;
+        } else {
           if (!rawContainerLogWarningPrinted) {
             LOG.warn("Cannot determine the location of container logs because of incompatible node manager log location ({}) and yarn log location ({})",
-                    logDirsPath, yarnLogDirPath);
+                logDirsPath, yarnLogDirPath);
             rawContainerLogWarningPrinted = true;
           }
         }
@@ -166,8 +167,7 @@ public class ConfigUtils
       int j = optString.indexOf(' ', i);
       if (j == -1) {
         return optString.substring(i);
-      }
-      else {
+      } else {
         return optString.substring(i, j);
       }
     }

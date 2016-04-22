@@ -1,47 +1,67 @@
 /**
- * Copyright (C) 2015 DataTorrent, Inc.
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *         http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package com.datatorrent.stram.client;
 
-import java.io.*;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.StringWriter;
 import java.lang.reflect.Modifier;
-import java.net.*;
-import java.util.*;
+import java.net.JarURLConnection;
+import java.net.URI;
+import java.net.URL;
+import java.net.URLClassLoader;
+import java.net.URLConnection;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.jar.JarEntry;
 
-import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
-
+import org.codehaus.jettison.json.JSONException;
 import org.codehaus.jettison.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.apache.commons.codec.binary.Base64;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang.NotImplementedException;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.yarn.api.records.ApplicationId;
+import org.apache.hadoop.yarn.conf.YarnConfiguration;
 import org.apache.tools.ant.DirectoryScanner;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
+
+import com.datatorrent.api.Context;
 import com.datatorrent.api.StreamingApplication;
 import com.datatorrent.api.annotation.ApplicationAnnotation;
-
 import com.datatorrent.stram.StramClient;
 import com.datatorrent.stram.StramLocalCluster;
 import com.datatorrent.stram.StramUtils;
@@ -76,13 +96,15 @@ public class StramAppLauncher
   private static final Logger LOG = LoggerFactory.getLogger(StramAppLauncher.class);
   private File jarFile;
   private FileSystem fs;
+  private String recoveryAppName;
   private final LogicalPlanConfiguration propertiesBuilder;
-  private final List<AppFactory> appResourceList = new ArrayList<AppFactory>();
+  private final Configuration conf;
+  private final List<AppFactory> appResourceList = new ArrayList<>();
   private LinkedHashSet<URL> launchDependencies;
   private LinkedHashSet<File> deployJars;
   private final StringWriter mvnBuildClasspathOutput = new StringWriter();
 
-  public static interface AppFactory
+  public interface AppFactory
   {
     LogicalPlan createApp(LogicalPlanConfiguration conf);
 
@@ -105,8 +127,7 @@ public class StramAppLauncher
     {
       try {
         return conf.createFromProperties(LogicalPlanConfiguration.readProperties(propertyFile.getAbsolutePath()), getName());
-      }
-      catch (IOException e) {
+      } catch (IOException e) {
         throw new IllegalArgumentException("Failed to load: " + this + "\n" + e.getMessage(), e);
       }
     }
@@ -117,8 +138,7 @@ public class StramAppLauncher
       String filename = propertyFile.getName();
       if (filename.endsWith(".properties")) {
         return filename.substring(0, filename.length() - 5);
-      }
-      else {
+      } else {
         return filename;
       }
     }
@@ -139,18 +159,12 @@ public class StramAppLauncher
     public JsonFileAppFactory(File file)
     {
       this.jsonFile = file;
-      InputStream is = null;
-      try {
-        is = new FileInputStream(jsonFile);
+      try (InputStream is = new FileInputStream(jsonFile)) {
         StringWriter writer = new StringWriter();
         IOUtils.copy(is, writer);
         json = new JSONObject(writer.toString());
-      }
-      catch (Exception e) {
+      } catch (Exception e) {
         throw new IllegalArgumentException("Failed to load: " + this + "\n" + e.getMessage(), e);
-      }
-      finally {
-        IOUtils.closeQuietly(is);
       }
     }
 
@@ -159,8 +173,7 @@ public class StramAppLauncher
     {
       try {
         return conf.createFromJson(json, getName());
-      }
-      catch (Exception e) {
+      } catch (Exception e) {
         throw new IllegalArgumentException("Failed to load: " + this + "\n" + e.getMessage(), e);
       }
     }
@@ -171,8 +184,7 @@ public class StramAppLauncher
       String filename = jsonFile.getName();
       if (filename.endsWith(".json")) {
         return filename.substring(0, filename.length() - 5);
-      }
-      else {
+      } else {
         return filename;
       }
     }
@@ -185,9 +197,32 @@ public class StramAppLauncher
     }
   }
 
+  public class RecoveryAppFactory implements AppFactory
+  {
+    @Override
+    public LogicalPlan createApp(LogicalPlanConfiguration conf)
+    {
+      return conf.createEmptyForRecovery(recoveryAppName);
+    }
+
+    @Override
+    public String getName()
+    {
+      return recoveryAppName;
+    }
+
+    @Override
+    public String getDisplayName()
+    {
+      return recoveryAppName;
+    }
+  }
+
+
   public StramAppLauncher(File appJarFile, Configuration conf) throws Exception
   {
     this.jarFile = appJarFile;
+    this.conf = conf;
     this.propertiesBuilder = new LogicalPlanConfiguration(conf);
     init(this.jarFile.getName());
   }
@@ -200,6 +235,7 @@ public class StramAppLauncher
     this.fs = fs;
     fs.copyToLocalFile(path, new Path(localJarFile.getAbsolutePath()));
     this.jarFile = localJarFile;
+    this.conf = conf;
     this.propertiesBuilder = new LogicalPlanConfiguration(conf);
     init(this.jarFile.getName());
   }
@@ -207,12 +243,70 @@ public class StramAppLauncher
   public StramAppLauncher(String name, Configuration conf) throws Exception
   {
     this.propertiesBuilder = new LogicalPlanConfiguration(conf);
+    this.conf = conf;
     init(name);
+  }
+
+  /**
+   * This is for recovering an app without specifying apa or appjar file
+   *
+   * @throws Exception
+   */
+  public StramAppLauncher(FileSystem fs, Configuration conf) throws Exception
+  {
+    this.propertiesBuilder = new LogicalPlanConfiguration(conf);
+    this.fs = fs;
+    this.conf = conf;
+    init();
   }
 
   public String getMvnBuildClasspathOutput()
   {
     return mvnBuildClasspathOutput.toString();
+  }
+
+  private void init() throws Exception
+  {
+    String originalAppId = propertiesBuilder.conf.get(ORIGINAL_APP_ID);
+    if (originalAppId == null) {
+      throw new AssertionError("Need original app id if launching without apa or appjar");
+    }
+    Path appsBasePath = new Path(StramClientUtils.getDTDFSRootDir(fs, conf), StramClientUtils.SUBDIR_APPS);
+    Path origAppPath = new Path(appsBasePath, originalAppId);
+    StringWriter writer = new StringWriter();
+    try (FSDataInputStream in = fs.open(new Path(origAppPath, "meta.json"))) {
+      IOUtils.copy(in, writer);
+    }
+    JSONObject metaJson = new JSONObject(writer.toString());
+    String originalLibJars = null;
+
+    // Getting the old libjar dependency is necessary here to construct the class loader because during launch it
+    // needs to deserialize the dag to change the serialized state with new app id. This may become unnecessary if we
+    // don't rely on object deserialization for changing the app id in the future.
+    try {
+      JSONObject attributes = metaJson.getJSONObject("attributes");
+      originalLibJars = attributes.getString(LogicalPlan.LIBRARY_JARS.getSimpleName());
+      recoveryAppName = attributes.getString(Context.DAGContext.APPLICATION_NAME.getSimpleName());
+    } catch (JSONException ex) {
+      recoveryAppName = "Recovery App From " + originalAppId;
+    }
+
+    LinkedHashSet<URL> clUrls = new LinkedHashSet<>();
+    String libjars = propertiesBuilder.conf.get(LIBJARS_CONF_KEY_NAME);
+
+    if (StringUtils.isBlank(libjars)) {
+      libjars = originalLibJars;
+    } else if (StringUtils.isNotBlank(originalLibJars)) {
+      libjars = libjars + "," + originalLibJars;
+    }
+    propertiesBuilder.conf.set(LIBJARS_CONF_KEY_NAME, libjars);
+    processLibJars(libjars, clUrls);
+
+    for (URL baseURL : clUrls) {
+      LOG.debug("Dependency: {}", baseURL);
+    }
+
+    this.launchDependencies = clUrls;
   }
 
   private void init(String tmpName) throws Exception
@@ -221,7 +315,7 @@ public class StramAppLauncher
     baseDir = new File(new File(baseDir, "appcache"), tmpName);
     baseDir.mkdirs();
     LinkedHashSet<URL> clUrls;
-    List<String> classFileNames = new ArrayList<String>();
+    List<String> classFileNames = new ArrayList<>();
 
     if (jarFile != null) {
       JarFileContext jfc = new JarFileContext(new java.util.jar.JarFile(jarFile), mvnBuildClasspathOutput);
@@ -233,13 +327,11 @@ public class StramAppLauncher
         if (!jarEntry.isDirectory()) {
           if (jarEntry.getName().endsWith("pom.xml")) {
             jfc.pomEntry = jarEntry;
-          }
-          else if (jarEntry.getName().endsWith(".app.properties")) {
+          } else if (jarEntry.getName().endsWith(".app.properties")) {
             File targetFile = new File(baseDir, jarEntry.getName());
             FileUtils.copyInputStreamToFile(jfc.jarFile.getInputStream(jarEntry), targetFile);
             appResourceList.add(new PropertyFileAppFactory(targetFile));
-          }
-          else if (jarEntry.getName().endsWith(".class")) {
+          } else if (jarEntry.getName().endsWith(".class")) {
             classFileNames.add(jarEntry.getName());
           }
         }
@@ -262,8 +354,7 @@ public class StramAppLauncher
       String resolverConfig = this.propertiesBuilder.conf.get(CLASSPATH_RESOLVERS_KEY_NAME, null);
       if (!StringUtils.isEmpty(resolverConfig)) {
         resolvers = new ClassPathResolvers().createResolvers(resolverConfig);
-      }
-      else {
+      } else {
         // default setup if nothing was configured
         String manifestCp = jfc.jarFile.getManifest().getMainAttributes().getValue(ManifestResolver.ATTR_NAME);
         if (manifestCp != null) {
@@ -271,8 +362,7 @@ public class StramAppLauncher
           if (repoRoot.exists()) {
             LOG.debug("Resolving manifest attribute {} based on {}", ManifestResolver.ATTR_NAME, repoRoot);
             resolvers.add(new ClassPathResolvers.ManifestResolver(repoRoot));
-          }
-          else {
+          } else {
             LOG.warn("Ignoring manifest attribute {} because {} does not exist.", ManifestResolver.ATTR_NAME, repoRoot);
           }
         }
@@ -290,12 +380,11 @@ public class StramAppLauncher
         // we want the jar file to be opened on every launch to pick up latest changes
         // http://abondar-howto.blogspot.com/2010/06/howto-unload-jar-files-loaded-by.html
         // http://bugs.sun.com/bugdatabase/view_bug.do?bug_id=4167874
-        ((JarURLConnection) urlConnection).getJarFile().close();
+        ((JarURLConnection)urlConnection).getJarFile().close();
       }
       clUrls = jfc.urls;
-    }
-    else {
-      clUrls = new LinkedHashSet<URL>();
+    } else {
+      clUrls = new LinkedHashSet<>();
     }
 
     // add the jar dependencies
@@ -342,11 +431,9 @@ public class StramAppLauncher
         for (String file : files) {
           clUrls.add(new URL("file:" + file));
         }
-      }
-      else if (scheme.equals("file")) {
+      } else if (scheme.equals("file")) {
         clUrls.add(new URL(libjar));
-      }
-      else {
+      } else {
         if (fs != null) {
           Path path = new Path(libjar);
           File dependencyJarsDir = new File(StramClientUtils.getUserDTDirectory(), "dependencyJars");
@@ -354,8 +441,7 @@ public class StramAppLauncher
           File localJarFile = new File(dependencyJarsDir, path.getName());
           fs.copyToLocalFile(path, new Path(localJarFile.getAbsolutePath()));
           clUrls.add(new URL("file:" + localJarFile.getAbsolutePath()));
-        }
-        else {
+        } else {
           throw new NotImplementedException("Jar file needs to be from Hadoop File System also in order for the dependency jars to be in Hadoop File System");
         }
       }
@@ -388,8 +474,7 @@ public class StramAppLauncher
               ApplicationAnnotation an = clazz.getAnnotation(ApplicationAnnotation.class);
               if (an != null) {
                 return an.name();
-              }
-              else {
+              } else {
                 return classFileName;
               }
             }
@@ -408,8 +493,7 @@ public class StramAppLauncher
           };
           appResourceList.add(appConfig);
         }
-      }
-      catch (Throwable e) { // java.lang.NoClassDefFoundError
+      } catch (Throwable e) { // java.lang.NoClassDefFoundError
         LOG.error("Unable to load class: " + className + " " + e);
       }
     }
@@ -422,8 +506,7 @@ public class StramAppLauncher
       if (overrideConfFile.exists()) {
         LOG.info("Loading settings: " + overrideConfFile.toURI());
         conf.addResource(new Path(overrideConfFile.toURI()));
-      }
-      else {
+      } else {
         throw new IOException("Problem opening file " + overrideConfFile);
       }
     }
@@ -432,6 +515,7 @@ public class StramAppLauncher
         conf.set(entry.getKey(), entry.getValue());
       }
     }
+    StramClientUtils.evalConfiguration(conf);
     return conf;
   }
 
@@ -477,29 +561,20 @@ public class StramAppLauncher
     Configuration conf = propertiesBuilder.conf;
     conf.setEnum(StreamingApplication.ENVIRONMENT, StreamingApplication.Environment.CLUSTER);
     LogicalPlan dag = appConfig.createApp(propertiesBuilder);
-    String hdfsTokenMaxLifeTime = conf.get(StramClientUtils.HDFS_TOKEN_MAX_LIFE_TIME);
-    if (hdfsTokenMaxLifeTime != null && hdfsTokenMaxLifeTime.trim().length() > 0) {
-      dag.setAttribute(LogicalPlan.HDFS_TOKEN_LIFE_TIME, Long.parseLong(hdfsTokenMaxLifeTime));
-    }
-    String rmTokenMaxLifeTime = conf.get(StramClientUtils.RM_TOKEN_MAX_LIFE_TIME);
-    if (rmTokenMaxLifeTime != null && rmTokenMaxLifeTime.trim().length() > 0) {
-      dag.setAttribute(LogicalPlan.RM_TOKEN_LIFE_TIME, Long.parseLong(rmTokenMaxLifeTime));
-    }
+    long hdfsTokenMaxLifeTime = conf.getLong(StramClientUtils.DT_HDFS_TOKEN_MAX_LIFE_TIME, conf.getLong(StramClientUtils.HDFS_TOKEN_MAX_LIFE_TIME, StramClientUtils.DELEGATION_TOKEN_MAX_LIFETIME_DEFAULT));
+    dag.setAttribute(LogicalPlan.HDFS_TOKEN_LIFE_TIME, hdfsTokenMaxLifeTime);
+    long rmTokenMaxLifeTime = conf.getLong(StramClientUtils.DT_RM_TOKEN_MAX_LIFE_TIME, conf.getLong(YarnConfiguration.DELEGATION_TOKEN_MAX_LIFETIME_KEY, YarnConfiguration.DELEGATION_TOKEN_MAX_LIFETIME_DEFAULT));
+    dag.setAttribute(LogicalPlan.RM_TOKEN_LIFE_TIME, rmTokenMaxLifeTime);
     if (conf.get(StramClientUtils.KEY_TAB_FILE) != null) {
       dag.setAttribute(LogicalPlan.KEY_TAB_FILE, conf.get(StramClientUtils.KEY_TAB_FILE));
-    }
-    else if (conf.get(StramUserLogin.DT_AUTH_KEYTAB) != null) {
+    } else if (conf.get(StramUserLogin.DT_AUTH_KEYTAB) != null) {
       Path localKeyTabPath = new Path(conf.get(StramUserLogin.DT_AUTH_KEYTAB));
-      FileSystem fs = StramClientUtils.newFileSystemInstance(conf);
-      try {
+      try (FileSystem fs = StramClientUtils.newFileSystemInstance(conf)) {
         Path destPath = new Path(StramClientUtils.getDTDFSRootDir(fs, conf), localKeyTabPath.getName());
         if (!fs.exists(destPath)) {
           fs.copyFromLocalFile(false, false, localKeyTabPath, destPath);
         }
         dag.setAttribute(LogicalPlan.KEY_TAB_FILE, destPath.toString());
-      }
-      finally {
-        fs.close();
       }
     }
     String tokenRefreshFactor = conf.get(StramClientUtils.TOKEN_ANTICIPATORY_REFRESH_FACTOR);
@@ -528,8 +603,7 @@ public class StramAppLauncher
       client.setQueueName(conf.get(QUEUE_NAME));
       client.startApplication();
       return client.getApplicationReport().getApplicationId();
-    }
-    finally {
+    } finally {
       client.stop();
     }
   }

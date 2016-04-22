@@ -1,30 +1,39 @@
 /**
- * Copyright (C) 2015 DataTorrent, Inc.
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *         http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package com.datatorrent.api;
 
+import java.io.IOException;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 
+import org.codehaus.jackson.map.DeserializationConfig;
+import org.codehaus.jackson.map.ObjectMapper;
+import org.codehaus.jackson.map.ObjectReader;
+import org.codehaus.jackson.map.ObjectWriter;
 import org.apache.commons.beanutils.BeanUtils;
 import org.apache.commons.lang.StringUtils;
 
-import com.datatorrent.netlet.util.DTThrowable;
-import java.util.*;
+import com.google.common.base.Throwables;
 
 /**
  * This interface is essentially serializer/deserializer interface which works with String as
@@ -53,7 +62,7 @@ public interface StringCodec<T>
    */
   String toString(T pojo);
 
-  public class String2String implements StringCodec<String>, Serializable
+  class String2String implements StringCodec<String>, Serializable
   {
     @Override
     public String fromString(String string)
@@ -70,7 +79,7 @@ public interface StringCodec<T>
     private static final long serialVersionUID = 201310141156L;
   }
 
-  public class Integer2String implements StringCodec<Integer>, Serializable
+  class Integer2String implements StringCodec<Integer>, Serializable
   {
     @Override
     public Integer fromString(String string)
@@ -87,7 +96,7 @@ public interface StringCodec<T>
     private static final long serialVersionUID = 201310141157L;
   }
 
-  public class Long2String implements StringCodec<Long>, Serializable
+  class Long2String implements StringCodec<Long>, Serializable
   {
     @Override
     public Long fromString(String string)
@@ -104,7 +113,7 @@ public interface StringCodec<T>
     private static final long serialVersionUID = 201310141158L;
   }
 
-  public class Boolean2String implements StringCodec<Boolean>, Serializable
+  class Boolean2String implements StringCodec<Boolean>, Serializable
   {
     @Override
     public Boolean fromString(String string)
@@ -130,9 +139,14 @@ public interface StringCodec<T>
    * string as an argument.If properties are specified then properties will be set on the object. The properties
    * are defined in property=value format separated by colon(:)
    *
+   * Note that the {@link #toString(Object) toString} method is by default NOT the proper reverse of the {@link
+   * #fromString(String) fromString} method. In order for the {@link #toString(Object) toString} method to become a
+   * proper reverse of the {@link #fromString(String) fromString} method, T's {@link T#toString() toString} method
+   * must output null or <Constructor_String> or the <Constructor_String>:<Property_String> format as stated above.
+   *
    * @param <T> Type of the object which is converted to/from String
    */
-  public class Object2String<T> implements StringCodec<T>, Serializable
+  class Object2String<T> implements StringCodec<T>, Serializable
   {
     public final String separator;
     public final String propertySeparator;
@@ -163,7 +177,7 @@ public interface StringCodec<T>
 
       try {
         @SuppressWarnings("unchecked")
-        Class<? extends T> clazz = (Class<? extends T>) Thread.currentThread().getContextClassLoader().loadClass(parts[0]);
+        Class<? extends T> clazz = (Class<? extends T>)Thread.currentThread().getContextClassLoader().loadClass(parts[0]);
         if (parts.length == 1) {
           return clazz.newInstance();
         }
@@ -171,8 +185,7 @@ public interface StringCodec<T>
         //String[] properties = parts[1].split(separator, 2);
         if (parts.length == 2) {
           return clazz.getConstructor(String.class).newInstance(parts[1]);
-        }
-        else {
+        } else {
           T object = clazz.getConstructor(String.class).newInstance(parts[1]);
           HashMap<String, String> hashMap = new HashMap<String, String>();
           for (int i = 2; i < parts.length; i++) {
@@ -182,17 +195,17 @@ public interface StringCodec<T>
           BeanUtils.populate(object, hashMap);
           return object;
         }
+      } catch (Throwable cause) {
+        throw Throwables.propagate(cause);
       }
-      catch (Throwable cause) {
-        DTThrowable.rethrow(cause);
-      }
-
-      return null;
     }
 
     @Override
     public String toString(T pojo)
     {
+      if (pojo == null) {
+        return null;
+      }
       String arg = pojo.toString();
       if (arg == null) {
         return pojo.getClass().getCanonicalName();
@@ -204,7 +217,7 @@ public interface StringCodec<T>
     private static final long serialVersionUID = 201311141853L;
   }
 
-  public class Map2String<K, V> implements StringCodec<Map<K, V>>, Serializable
+  class Map2String<K, V> implements StringCodec<Map<K, V>>, Serializable
   {
     private final StringCodec<K> keyCodec;
     private final StringCodec<V> valueCodec;
@@ -261,7 +274,7 @@ public interface StringCodec<T>
     private static final long serialVersionUID = 201402272053L;
   }
 
-  public class Collection2String<T> implements StringCodec<Collection<T>>, Serializable
+  class Collection2String<T> implements StringCodec<Collection<T>>, Serializable
   {
     private final String separator;
     private final StringCodec<T> codec;
@@ -317,7 +330,7 @@ public interface StringCodec<T>
     private static final long serialVersionUID = 201401091806L;
   }
 
-  public class Enum2String<T extends Enum<T>> implements StringCodec<T>, Serializable
+  class Enum2String<T extends Enum<T>> implements StringCodec<T>, Serializable
   {
     private final Class<T> clazz;
 
@@ -341,7 +354,7 @@ public interface StringCodec<T>
     private static final long serialVersionUID = 201310181757L;
   }
 
-  public class Class2String<T> implements StringCodec<Class<? extends T>>, Serializable
+  class Class2String<T> implements StringCodec<Class<? extends T>>, Serializable
   {
     @Override
     @SuppressWarnings({"BroadCatchBlock", "TooBroadCatch"})
@@ -351,12 +364,9 @@ public interface StringCodec<T>
         @SuppressWarnings({"rawtypes", "unchecked"})
         Class<? extends T> clazz = (Class)Thread.currentThread().getContextClassLoader().loadClass(string);
         return clazz;
+      } catch (Throwable cause) {
+        throw Throwables.propagate(cause);
       }
-      catch (Throwable cause) {
-        DTThrowable.rethrow(cause);
-      }
-
-      return null;
     }
 
     @Override
@@ -368,4 +378,40 @@ public interface StringCodec<T>
     private static final long serialVersionUID = 201312082053L;
   }
 
+  class JsonStringCodec<T> implements StringCodec<T>, Serializable
+  {
+    private static final long serialVersionUID = 2513932518264776006L;
+    Class<?> clazz;
+
+    public JsonStringCodec(Class<T> clazz)
+    {
+      this.clazz = clazz;
+    }
+
+    @Override
+    public T fromString(String string)
+    {
+      try {
+        ObjectMapper mapper = new ObjectMapper();
+        mapper.configure(DeserializationConfig.Feature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+        ObjectReader reader = mapper.reader(clazz);
+        return reader.readValue(string);
+      } catch (IOException e) {
+        throw Throwables.propagate(e);
+      }
+    }
+
+    @Override
+    public String toString(T pojo)
+    {
+      try {
+        ObjectMapper mapper = new ObjectMapper();
+        mapper.configure(DeserializationConfig.Feature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+        ObjectWriter writer = mapper.writer();
+        return writer.writeValueAsString(pojo);
+      } catch (IOException e) {
+        throw Throwables.propagate(e);
+      }
+    }
+  }
 }

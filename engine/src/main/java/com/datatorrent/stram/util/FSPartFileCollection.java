@@ -1,17 +1,20 @@
 /**
- * Copyright (C) 2015 DataTorrent, Inc.
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *         http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package com.datatorrent.stram.util;
 
@@ -89,16 +92,14 @@ public class FSPartFileCollection
     Path pa = new Path(basePath, META_FILE);
     if (isLocalMode) {
       metaOs = new FSDataOutputStream(new FileOutputStream(localBasePath + "/" + META_FILE), null);
-    }
-    else {
+    } else {
       metaOs = fs.create(pa);
     }
 
     pa = new Path(basePath, INDEX_FILE);
     if (isLocalMode) {
       indexOutStr = new FSDataOutputStream(new FileOutputStream(localBasePath + "/" + INDEX_FILE), null);
-    }
-    else {
+    } else {
       indexOutStr = fs.create(pa);
     }
   }
@@ -122,8 +123,7 @@ public class FSPartFileCollection
         indexOutStr.close();
       }
       fs.close();
-    }
-    catch (IOException ex) {
+    } catch (IOException ex) {
       logger.error(ex.toString());
     }
   }
@@ -135,8 +135,7 @@ public class FSPartFileCollection
     logger.debug("Opening new part file: {}", hdfsFile);
     if (isLocalMode) {
       partOutStr = new FSDataOutputStream(new FileOutputStream(localBasePath + "/" + hdfsFile), null);
-    }
-    else {
+    } else {
       partOutStr = fs.create(path);
     }
     fileParts++;
@@ -171,9 +170,9 @@ public class FSPartFileCollection
   public boolean isReadyTurnoverPartFile()
   {
     try {
-      return (syncRequested || (partOutStr.getPos() > bytesPerPartFile) || (currentPartFileTimeStamp + millisPerPartFile < System.currentTimeMillis())) && partOutStr.getPos() > 0;
-    }
-    catch (IOException ex) {
+      return (syncRequested || (partOutStr.getPos() > bytesPerPartFile) ||
+          (currentPartFileTimeStamp + millisPerPartFile < System.currentTimeMillis())) && partOutStr.getPos() > 0;
+    } catch (IOException ex) {
       return true;
     }
   }
@@ -209,8 +208,7 @@ public class FSPartFileCollection
       indexOutStr.write(line.getBytes());
       indexOutStr.hflush();
       indexOutStr.hsync();
-    }
-    catch (IOException ex) {
+    } catch (IOException ex) {
       logger.error(ex.toString());
     }
   }
@@ -233,8 +231,7 @@ public class FSPartFileCollection
       indexOutStr.write(("E\n").getBytes());
       indexOutStr.hflush();
       indexOutStr.hsync();
-    }
-    catch (IOException ex) {
+    } catch (IOException ex) {
       logger.error(ex.toString());
     }
   }

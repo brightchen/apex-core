@@ -1,17 +1,20 @@
 /**
- * Copyright (C) 2015 DataTorrent, Inc.
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *         http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package com.datatorrent.stram.webapp;
 
@@ -22,7 +25,15 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.net.URI;
-import java.util.*;
+import java.util.AbstractList;
+import java.util.AbstractMap;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+import java.util.Properties;
 import java.util.concurrent.Callable;
 import java.util.concurrent.DelayQueue;
 import java.util.concurrent.LinkedBlockingDeque;
@@ -30,8 +41,6 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.PriorityBlockingQueue;
 import java.util.concurrent.SynchronousQueue;
 
-import org.apache.hadoop.conf.Configuration;
-import org.apache.tools.ant.DirectoryScanner;
 import org.codehaus.jackson.map.ObjectMapper;
 import org.codehaus.jettison.json.JSONArray;
 import org.codehaus.jettison.json.JSONException;
@@ -39,23 +48,26 @@ import org.codehaus.jettison.json.JSONObject;
 import org.junit.Assert;
 import org.junit.Test;
 
-import com.datatorrent.api.DefaultInputPort;
-import com.datatorrent.api.DefaultOutputPort;
-import com.datatorrent.api.annotation.InputPortFieldAnnotation;
-import com.datatorrent.api.annotation.OutputPortFieldAnnotation;
-import com.datatorrent.common.util.BaseOperator;
-import com.datatorrent.api.InputOperator;
-
-import com.datatorrent.stram.plan.logical.LogicalPlan;
-import com.datatorrent.stram.plan.logical.LogicalPlan.OperatorMeta;
-import com.datatorrent.stram.plan.logical.LogicalPlanConfiguration;
-import com.datatorrent.stram.util.ObjectMapperFactory;
-import com.datatorrent.stram.webapp.TypeDiscoverer.UI_TYPE;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.tools.ant.DirectoryScanner;
 
 import com.esotericsoftware.kryo.Kryo;
 import com.esotericsoftware.kryo.io.Input;
 import com.esotericsoftware.kryo.io.Output;
 import com.google.common.collect.Lists;
+
+import com.datatorrent.api.DefaultInputPort;
+import com.datatorrent.api.DefaultOutputPort;
+import com.datatorrent.api.InputOperator;
+import com.datatorrent.api.annotation.InputPortFieldAnnotation;
+import com.datatorrent.api.annotation.OutputPortFieldAnnotation;
+import com.datatorrent.common.util.BaseOperator;
+import com.datatorrent.stram.plan.logical.LogicalPlan;
+import com.datatorrent.stram.plan.logical.LogicalPlan.OperatorMeta;
+import com.datatorrent.stram.plan.logical.LogicalPlanConfiguration;
+import com.datatorrent.stram.support.StramTestSupport;
+import com.datatorrent.stram.util.ObjectMapperFactory;
+import com.datatorrent.stram.webapp.TypeDiscoverer.UI_TYPE;
 
 public class OperatorDiscoveryTest
 {
@@ -69,65 +81,78 @@ public class OperatorDiscoveryTest
     private Map<?, ? extends Number> testWildCardMapProperty;
 
     @InputPortFieldAnnotation(optional = true)
-    public transient final DefaultInputPort<T> input = new DefaultInputPort<T>() {
+    public final transient DefaultInputPort<T> input = new DefaultInputPort<T>()
+    {
       @Override
-      public void process(T tuple) {
+      public void process(T tuple)
+      {
         output.emit("abcd");
       }
     };
 
-    public transient final DefaultInputPort<T> input1 = new DefaultInputPort<T>() {
-      public void process(T tuple) {
+    public final transient DefaultInputPort<T> input1 = new DefaultInputPort<T>()
+    {
+      public void process(T tuple)
+      {
         // Do nothing
       }
     };
 
-    public transient final DefaultInputPort<Map<?, ? extends String>> input2 = new DefaultInputPort<Map<?, ? extends String>>() {
-      public void process(Map<?, ? extends String> tuple) {
+    public final transient DefaultInputPort<Map<?, ? extends String>> input2 = new DefaultInputPort<Map<?, ? extends String>>()
+    {
+      public void process(Map<?, ? extends String> tuple)
+      {
         // Do nothing
       }
     };
 
     @OutputPortFieldAnnotation(optional = false, error = true)
-    public transient final DefaultOutputPort<String> output = new DefaultOutputPort<String>();
+    public final transient DefaultOutputPort<String> output = new DefaultOutputPort<String>();
 
-    public transient final DefaultOutputPort<Double> output1 = new DefaultOutputPort<Double>();
+    public final transient DefaultOutputPort<Double> output1 = new DefaultOutputPort<Double>();
 
     public String getName()
     {
       return "abc";
     }
 
-    public int getA() {
+    public int getA()
+    {
       return A;
     }
 
-    public void setA(int a) {
+    public void setA(int a)
+    {
       A = a;
     }
 
-    public T getB() {
+    public T getB()
+    {
       return B;
     }
 
-    public void setB(T b) {
+    public void setB(T b)
+    {
       B = b;
     }
 
-    public ArrayList<?> getTestWildCard() {
+    public ArrayList<?> getTestWildCard()
+    {
       return testWildCard;
     }
 
-    public void setTestWildCard(ArrayList<?> testWildCard) {
+    public void setTestWildCard(ArrayList<?> testWildCard)
+    {
       this.testWildCard = testWildCard;
     }
 
-    public Map<?, ? extends Number> getTestWildCardMapProperty() {
+    public Map<?, ? extends Number> getTestWildCardMapProperty()
+    {
       return testWildCardMapProperty;
     }
 
-    public void setTestWildCardMapProperty(
-        Map<?, ? extends Number> testWildCardMapProperty) {
+    public void setTestWildCardMapProperty(Map<?, ? extends Number> testWildCardMapProperty)
+    {
       this.testWildCardMapProperty = testWildCardMapProperty;
     }
   }
@@ -220,25 +245,21 @@ public class OperatorDiscoveryTest
     Assert.assertEquals(portType.get("typeLiteral"), "T");
     Assert.assertEquals(portType.get("type"), "long");
 
-    portType = (JSONObject) portTypes.get(2);
+    portType = (JSONObject)portTypes.get(2);
     Assert.assertEquals(portType.get("name"), "input2");
     Assert.assertEquals(portType.get("type"), "java.util.Map");
     JSONArray typeArgs = portType.getJSONArray("typeArgs");
     Assert.assertEquals(debug + " type " + portType,
-        "class " + Object.class.getName(), typeArgs.getJSONObject(0)
-            .getJSONObject("typeBounds").getJSONArray("upper").get(0));
+        "class " + Object.class.getName(), typeArgs.getJSONObject(0).getJSONObject("typeBounds").getJSONArray("upper").get(0));
     Assert.assertEquals(debug + " type " + portType,
-        "class " + String.class.getName(), typeArgs.getJSONObject(1)
-            .getJSONObject("typeBounds").getJSONArray("upper").get(0));
+        "class " + String.class.getName(), typeArgs.getJSONObject(1).getJSONObject("typeBounds").getJSONArray("upper").get(0));
 
     JSONObject wildcardType = getJSONProperty(props, "testWildCardMapProperty");
     Assert.assertEquals(debug + "type " + wildcardType, Map.class.getName(), wildcardType.get("type"));
     Assert.assertEquals(debug + "type " + wildcardType,
-        "class " + Object.class.getName(), wildcardType.getJSONArray("typeArgs").getJSONObject(0)
-            .getJSONObject("typeBounds").getJSONArray("upper").get(0));
+        "class " + Object.class.getName(), wildcardType.getJSONArray("typeArgs").getJSONObject(0).getJSONObject("typeBounds").getJSONArray("upper").get(0));
     Assert.assertEquals(debug + "type " + wildcardType, "class " + Number.class.getName(),
-        wildcardType.getJSONArray("typeArgs").getJSONObject(1)
-            .getJSONObject("typeBounds").getJSONArray("upper").get(0));
+        wildcardType.getJSONArray("typeArgs").getJSONObject(1).getJSONObject("typeBounds").getJSONArray("upper").get(0));
 
     portType = (JSONObject)portTypes.get(3);
     Assert.assertEquals(portType.get("name"), "output");
@@ -264,12 +285,10 @@ public class OperatorDiscoveryTest
     Assert.assertEquals(outPort.get("optional"), true);
     Assert.assertEquals(outPort.get("error"), false);
 
-    JSONObject circleType = operatorDiscoverer.describeClass(CircleType.class.getName())
-      .getJSONArray("properties").getJSONObject(0);
+    JSONObject circleType = operatorDiscoverer.describeClass(CircleType.class.getName()).getJSONArray("properties").getJSONObject(0);
     Assert.assertEquals(circleType.toString(2), circleType.getString("typeLiteral"), "E");
     Assert.assertEquals(circleType.toString(2), circleType.getString("type"), "java.util.Comparator");
-    Assert.assertEquals(circleType.toString(2),
-      circleType.getJSONArray("typeArgs").getJSONObject(0).getString("typeLiteral"), "E");
+    Assert.assertEquals(circleType.toString(2), circleType.getJSONArray("typeArgs").getJSONObject(0).getString("typeLiteral"), "E");
   }
 
   @Test
@@ -290,10 +309,10 @@ public class OperatorDiscoveryTest
     Assert.assertEquals(debug + "Number of properties ", 27, props.length());
 
     // make sure properties of excluded classes are not in the asm description of the type
-    for(String classN : TypeGraph.EXCLUDE_CLASSES){
+    for (String classN : TypeGraph.EXCLUDE_CLASSES) {
       Class c = Class.forName(classN.replace('/', '.'));
       BeanInfo bi = Introspector.getBeanInfo(c);
-      for (PropertyDescriptor pd : bi.getPropertyDescriptors()){
+      for (PropertyDescriptor pd : bi.getPropertyDescriptors()) {
         Assert.assertNull(debug, getJSONProperty(props, pd.getName()));
       }
     }
@@ -398,12 +417,12 @@ public class OperatorDiscoveryTest
     List<String> fnames = new LinkedList<String>();
     for (String cp : paths) {
       File f = new File(cp);
-      if(!f.isDirectory()){
+      if (!f.isDirectory()) {
         continue;
       }
       DirectoryScanner ds = new DirectoryScanner();
       ds.setBasedir(f);
-      ds.setIncludes(new String[] { "**\\*.class" });
+      ds.setIncludes(new String[]{"**\\*.class"});
       ds.scan();
       for (String name : ds.getIncludedFiles()) {
         fnames.add(new File(f, name).getAbsolutePath());
@@ -416,7 +435,7 @@ public class OperatorDiscoveryTest
   private JSONObject getJSONProperty(JSONArray props, String name) throws JSONException
   {
     for (int i = 0; i < props.length(); i++) {
-      if(props.getJSONObject(i).get("name").equals(name)){
+      if (props.getJSONObject(i).get("name").equals(name)) {
         return props.getJSONObject(i);
       }
     }
@@ -460,12 +479,12 @@ public class OperatorDiscoveryTest
   {
     TestOperator<String, Map<String, Number>> bean = new TestOperator<String, Map<String, Number>>();
     bean.map.put("key1", new Structured());
-    bean.stringArray = new String[] { "one", "two", "three" };
+    bean.stringArray = new String[]{"one", "two", "three"};
     bean.stringList = Lists.newArrayList("four", "five");
     bean.props = new Properties();
     bean.props.setProperty("key1", "value1");
     bean.structuredArray = new Structured[]{new Structured()};
-    bean.genericArray = new String[] {"s1"};
+    bean.genericArray = new String[]{"s1"};
     bean.structuredArray[0].name = "s1";
     bean.color = Color.BLUE;
     bean.booleanProp = true;
@@ -493,6 +512,26 @@ public class OperatorDiscoveryTest
 
 
   }
+
+  @Test
+  public void testExternalResource() throws Exception
+  {
+
+
+    StramTestSupport.createAppPackageFile();
+    
+    String[] classFilePath = getClassFileInClasspath();
+
+    String[]cPaths = Lists.asList("src/test/resources/testAppPackage/mydtapp/target/mydtapp-1.0-SNAPSHOT.jar", classFilePath).toArray(new String[]{});
+    OperatorDiscoverer od = new OperatorDiscoverer(cPaths);
+    od.buildTypeGraph();
+
+    Assert.assertEquals("true", od.describeClass("com.example.mydtapp.StdoutOperator").getString("hasResource"));
+
+    StramTestSupport.removeAppPackageFile();
+
+  }
+
 
   public static class Structured
   {
@@ -544,25 +583,33 @@ public class OperatorDiscoveryTest
     @Override
     public boolean equals(Object obj)
     {
-      if (this == obj)
+      if (this == obj) {
         return true;
-      if (obj == null)
+      }
+      if (obj == null) {
         return false;
-      if (getClass() != obj.getClass())
+      }
+      if (getClass() != obj.getClass()) {
         return false;
-      Structured other = (Structured) obj;
+      }
+      Structured other = (Structured)obj;
       if (list == null) {
-        if (other.list != null)
+        if (other.list != null) {
           return false;
-      } else if (!list.equals(other.list))
+        }
+      } else if (!list.equals(other.list)) {
         return false;
+      }
       if (name == null) {
-        if (other.name != null)
+        if (other.name != null) {
           return false;
-      } else if (!name.equals(other.name))
+        }
+      } else if (!name.equals(other.name)) {
         return false;
-      if (size != other.size)
+      }
+      if (size != other.size) {
         return false;
+      }
       return true;
     }
 
@@ -611,11 +658,13 @@ public class OperatorDiscoveryTest
 
     private Class aClass = Object.class;
 
-    public Class getaClass() {
+    public Class getaClass()
+    {
       return aClass;
     }
 
-    public void setaClass(Class aClass) {
+    public void setaClass(Class aClass)
+    {
       this.aClass = aClass;
     }
 
@@ -639,7 +688,6 @@ public class OperatorDiscoveryTest
       return getterOnly;
     }
 
-
     public URI getUri()
     {
       return uri;
@@ -649,7 +697,6 @@ public class OperatorDiscoveryTest
     {
       this.uri = uri;
     }
-
 
     public void setIntegerProp(Integer integerProp)
     {
@@ -771,11 +818,13 @@ public class OperatorDiscoveryTest
       this.genericArray = genericArray;
     }
 
-    public boolean isBooleanProp() {
+    public boolean isBooleanProp()
+    {
       return booleanProp;
     }
 
-    public void setBooleanProp(boolean booleanProp) {
+    public void setBooleanProp(boolean booleanProp)
+    {
       this.booleanProp = booleanProp;
     }
 
@@ -788,7 +837,6 @@ public class OperatorDiscoveryTest
     {
       this.nestedParameterizedType = nestedParameterizedType;
     }
-
 
     public Map<? extends Object, ? super Long> getWildcardType()
     {
@@ -850,7 +898,8 @@ public class OperatorDiscoveryTest
       this.parameterizedTypeVariable = parameterizedTypeVariable;
     }
 
-    public <AMAZING extends Callable<Map<String, String>>> AMAZING getAmazing(){
+    public <AMAZING extends Callable<Map<String, String>>> AMAZING getAmazing()
+    {
       return null;
     }
 
@@ -882,6 +931,7 @@ public class OperatorDiscoveryTest
     {
       this.a = a;
     }
+
     public void setB(B b)
     {
       this.b = b;
@@ -941,20 +991,24 @@ public class OperatorDiscoveryTest
 
   public static class ArraysHolder
   {
-    public int[] intArray =  new int[] { 1, 2, 3 };
-    public Structured[] beanArray = new Structured[] {};
+    public int[] intArray = new int[]{1, 2, 3};
+    public Structured[] beanArray = new Structured[]{};
+
     public int[] getIntArray()
     {
       return intArray;
     }
+
     public void setIntArray(int[] intArray)
     {
       this.intArray = intArray;
     }
+
     public Structured[] getBeanArray()
     {
       return beanArray;
     }
+
     public void setBeanArray(Structured[] beanArray)
     {
       this.beanArray = beanArray;
@@ -992,12 +1046,12 @@ public class OperatorDiscoveryTest
   {
     TestOperator<String, Map<String, Number>> bean = new TestOperator<String, Map<String, Number>>();
     bean.map.put("key1", new Structured());
-    bean.stringArray = new String[] { "one", "two", "three" };
+    bean.stringArray = new String[]{"one", "two", "three"};
     bean.stringList = Lists.newArrayList("four", "five");
     bean.props = new Properties();
     bean.props.setProperty("key1", "value1");
     bean.structuredArray = new Structured[]{new Structured()};
-    bean.genericArray = new String[] {"s1"};
+    bean.genericArray = new String[]{"s1"};
     bean.structuredArray[0].name = "s1";
     bean.color = Color.BLUE;
     bean.booleanProp = true;
@@ -1021,7 +1075,6 @@ public class OperatorDiscoveryTest
     jsonOper.put("properties", jsonObj);
     jsonPlan.put("operators", new JSONArray(Lists.newArrayList(jsonOper)));
 
-
     Configuration conf = new Configuration(false);
     LogicalPlanConfiguration lpc = new LogicalPlanConfiguration(conf);
     // create logical plan from the json
@@ -1029,7 +1082,7 @@ public class OperatorDiscoveryTest
     OperatorMeta om = lp.getOperatorMeta("Test Operator");
     Assert.assertTrue(om.getOperator() instanceof TestOperator);
     @SuppressWarnings("rawtypes")
-    TestOperator beanBack = (TestOperator) om.getOperator();
+    TestOperator beanBack = (TestOperator)om.getOperator();
 
     // The operator deserialized back from json should be same as original operator
     Assert.assertEquals(bean.map, beanBack.map);
@@ -1042,7 +1095,6 @@ public class OperatorDiscoveryTest
     Assert.assertEquals(bean.booleanProp, beanBack.booleanProp);
     Assert.assertEquals(bean.realName, beanBack.realName);
     Assert.assertEquals(bean.getterOnly, beanBack.getterOnly);
-
 
   }
 
@@ -1105,5 +1157,15 @@ public class OperatorDiscoveryTest
 
     Assert.assertEquals("number of port types with schema", 0, portsWithSchemaClasses.length());
   }
+
+  @Test
+  public void testMethodType()
+  {
+    Assert.assertEquals("@omitFromUI", OperatorDiscoverer.MethodTagType.OMIT_FROM_UI, OperatorDiscoverer.MethodTagType.from("@omitFromUI"));
+    Assert.assertEquals("@useSchema", OperatorDiscoverer.MethodTagType.USE_SCHEMA, OperatorDiscoverer.MethodTagType.from("@useSchema"));
+    Assert.assertEquals("@description", OperatorDiscoverer.MethodTagType.DESCRIPTION, OperatorDiscoverer.MethodTagType.from("@description"));
+    Assert.assertEquals("@random", null, OperatorDiscoverer.MethodTagType.from("@random"));
+  }
+
 }
 

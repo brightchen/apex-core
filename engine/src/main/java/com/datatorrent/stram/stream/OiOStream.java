@@ -1,17 +1,20 @@
 /**
- * Copyright (C) 2015 DataTorrent, Inc.
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *         http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package com.datatorrent.stram.stream;
 
@@ -22,15 +25,24 @@ import com.datatorrent.stram.engine.SweepableReservoir;
 import com.datatorrent.stram.tuple.Tuple;
 
 /**
- * A non buffering stream which facilitates the ThreadLocal implementation of an operator.
+ * A non buffering stream which facilitates the ThreadLocal implementation of an operator.</p>
+ *
+ * {@link OiOStream} can not implement both {@link Stream} and {@link SweepableReservoir} interfaces as
+ * {@code getCount(boolean)} should reset the proper count. In case, OioStream implements both {@link Stream} and
+ * {@link SweepableReservoir}, it will not be possible to distinguish which count should be reset to 0, so either
+ * {@link Sink#getCount(boolean)} or {@link SweepableReservoir#getCount(boolean)} would return a wrong result: let's say
+ * upstream operator puts n tuples into {@link OiOStream}, both {@link Sink#getCount(boolean) Sink.getCount(true)} and
+ * {@link SweepableReservoir#getCount(boolean) SweepableReservoir.getCount(true)} should return n and reset count to 0.
+ * If there is only one count, only one call (whichever comes first) would return n, the second one would return 0.
  *
  * @since 0.3.5
  */
-public class OiOStream implements Stream, SweepableReservoir
+public class OiOStream implements Stream
 {
   private Sink<Object> sink;
   private Sink<Tuple> control;
   private int count;
+  private OiOReservoir reservoir = new OiOReservoir();
 
   @Override
   public void setup(StreamContext context)
@@ -42,11 +54,6 @@ public class OiOStream implements Stream, SweepableReservoir
   {
   }
 
-  public void setControlSink(Sink<Tuple> control)
-  {
-    this.control = control;
-  }
-  
   @Override
   public void activate(StreamContext cntxt)
   {
@@ -62,9 +69,9 @@ public class OiOStream implements Stream, SweepableReservoir
   {
     if (t instanceof Tuple) {
       control.put((Tuple)t);
-    }
-    else {
+    } else {
       count++;
+      reservoir.count++;
       sink.put(t);
     }
   }
@@ -74,45 +81,75 @@ public class OiOStream implements Stream, SweepableReservoir
   {
     try {
       return count;
-    }
-    finally {
+    } finally {
       if (reset) {
         count = 0;
       }
     }
   }
 
-  @Override
-  public Sink<Object> setSink(Sink<Object> sink)
+  public SweepableReservoir getReservoir()
   {
-    try {
-      return this.sink;
+    return reservoir;
+  }
+
+  public class OiOReservoir implements SweepableReservoir
+  {
+    private int count;
+
+    public void setControlSink(Sink<Tuple> control)
+    {
+      OiOStream.this.control = control;
     }
-    finally {
-      this.sink = sink;
+
+    @Override
+    public int getCount(boolean reset)
+    {
+      try {
+        return count;
+      } finally {
+        if (reset) {
+          count = 0;
+        }
+      }
+    }
+
+    @Override
+    public Sink<Object> setSink(Sink<Object> sink)
+    {
+      try {
+        return OiOStream.this.sink;
+      } finally {
+        OiOStream.this.sink = sink;
+      }
+    }
+
+    @Override
+    public Tuple sweep()
+    {
+      throw new UnsupportedOperationException("Not supported.");
+    }
+
+    /**
+     * OiOStream is active when there is exactly one tuple present.
+     * It's an error to have more than one tuple active on OiO.
+     */
+    @Override
+    public int size(boolean dataTupleAware)
+    {
+      return 1;
+    }
+
+    @Override
+    public boolean isEmpty()
+    {
+      return false;
+    }
+
+    @Override
+    public Object remove()
+    {
+      throw new UnsupportedOperationException("Not supported yet.");
     }
   }
-
-  @Override
-  public Tuple sweep()
-  {
-    throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
-  }
-
-  /**
-   * OiOStream is active when there is exactly one tuple present.
-   * It's an error to have more than one tuple active on OiO.
-   */
-  @Override
-  public int size()
-  {
-    return 1;
-  }
-
-  @Override
-  public Object remove()
-  {
-    throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
-  }
-
 }

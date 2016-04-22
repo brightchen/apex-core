@@ -1,43 +1,54 @@
 /**
- * Copyright (C) 2015 DataTorrent, Inc.
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *         http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package com.datatorrent.stram;
 
-import com.datatorrent.common.util.BaseOperator;
-import java.io.File;
 import java.io.IOException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+import org.junit.Assert;
+import org.junit.Before;
+import org.junit.Rule;
+import org.junit.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import org.apache.hadoop.yarn.util.Clock;
+import org.apache.hadoop.yarn.util.SystemClock;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
-import org.junit.*;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import org.apache.hadoop.fs.FileContext;
-import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.yarn.util.Clock;
-import org.apache.hadoop.yarn.util.SystemClock;
-
-import com.datatorrent.api.*;
+import com.datatorrent.api.DAG;
 import com.datatorrent.api.DAG.Locality;
+import com.datatorrent.api.DefaultOutputPort;
+import com.datatorrent.api.InputOperator;
+import com.datatorrent.api.Operator;
 import com.datatorrent.api.annotation.OutputPortFieldAnnotation;
 import com.datatorrent.api.annotation.Stateless;
-
 import com.datatorrent.common.util.AsyncFSStorageAgent;
+import com.datatorrent.common.util.BaseOperator;
+import com.datatorrent.common.util.FSStorageAgent;
 import com.datatorrent.stram.MockContainer.MockOperatorStats;
 import com.datatorrent.stram.StreamingContainerManager.UpdateCheckpointsContext;
 import com.datatorrent.stram.api.Checkpoint;
@@ -45,9 +56,11 @@ import com.datatorrent.stram.api.StreamingContainerUmbilicalProtocol.OperatorHea
 import com.datatorrent.stram.engine.GenericTestOperator;
 import com.datatorrent.stram.engine.OperatorContext;
 import com.datatorrent.stram.plan.logical.LogicalPlan;
+import com.datatorrent.stram.plan.logical.LogicalPlan.OperatorMeta;
 import com.datatorrent.stram.plan.physical.PTContainer;
 import com.datatorrent.stram.plan.physical.PTOperator;
 import com.datatorrent.stram.plan.physical.PhysicalPlan;
+import com.datatorrent.stram.support.StramTestSupport;
 import com.datatorrent.stram.support.StramTestSupport.MemoryStorageAgent;
 import com.datatorrent.stram.support.StramTestSupport.TestMeta;
 
@@ -58,36 +71,17 @@ public class CheckpointTest
 {
   @SuppressWarnings("unused")
   private static final Logger LOG = LoggerFactory.getLogger(CheckpointTest.class);
-  @Rule public TestMeta testMeta = new TestMeta();
 
-  /**
-   *
-   * @throws IOException
-   */
-  @Before
-  public void setupEachTest() throws IOException
-  {
-    try {
-      FileContext.getLocalFSFileContext().delete(
-              new Path(new File(testMeta.dir).getAbsolutePath()), true);
-    }
-    catch (Exception e) {
-      throw new RuntimeException("could not cleanup test dir", e);
-    }
-    //StramChild.eventloop.start();
-  }
+  @Rule
+  public TestMeta testMeta = new TestMeta();
 
-  @After
-  public void teardown()
-  {
-    //StramChild.eventloop.stop();
-  }
-
-  private static class MockInputOperator extends BaseOperator implements InputOperator
+  private static class MockInputOperator extends BaseOperator implements InputOperator, Operator.CheckpointNotificationListener
   {
     @OutputPortFieldAnnotation( optional = true)
     public final transient DefaultOutputPort<Object> outport = new DefaultOutputPort<Object>();
     private transient int windowCount;
+
+    private int checkpointState;
 
     @Override
     public void beginWindow(long windowId)
@@ -101,6 +95,30 @@ public class CheckpointTest
     public void emitTuples()
     {
     }
+
+    @Override
+    public void beforeCheckpoint(long windowId)
+    {
+      ++checkpointState;
+    }
+
+    @Override
+    public void checkpointed(long windowId)
+    {
+    }
+
+    @Override
+    public void committed(long windowId)
+    {
+    }
+  }
+
+  private LogicalPlan dag;
+
+  @Before
+  public void setup()
+  {
+    dag = StramTestSupport.createDAG(testMeta);
   }
 
   /**
@@ -110,9 +128,7 @@ public class CheckpointTest
   @Test
   public void testBackup() throws Exception
   {
-    LogicalPlan dag = new LogicalPlan();
-    dag.setAttribute(LogicalPlan.APPLICATION_PATH, testMeta.dir);
-    AsyncFSStorageAgent storageAgent = new AsyncFSStorageAgent(testMeta.dir + "/locaPath", testMeta.dir, null);
+    AsyncFSStorageAgent storageAgent = new AsyncFSStorageAgent(testMeta.getPath(), null);
     storageAgent.setSyncCheckpoint(true);
     dag.setAttribute(OperatorContext.STORAGE_AGENT, storageAgent);
     dag.setAttribute(LogicalPlan.CHECKPOINT_WINDOW_COUNT, 1);
@@ -169,8 +185,7 @@ public class CheckpointTest
   public void testUpdateRecoveryCheckpoint() throws Exception
   {
     Clock clock = new SystemClock();
-    LogicalPlan dag = new LogicalPlan();
-    dag.setAttribute(LogicalPlan.APPLICATION_PATH, testMeta.dir);
+
     dag.setAttribute(com.datatorrent.api.Context.OperatorContext.STORAGE_AGENT, new MemoryStorageAgent());
 
     GenericTestOperator o1 = dag.addOperator("o1", GenericTestOperator.class);
@@ -270,8 +285,7 @@ public class CheckpointTest
   public void testUpdateCheckpointsRecovery()
   {
     MockClock clock = new MockClock();
-    LogicalPlan dag = new LogicalPlan();
-    dag.setAttribute(LogicalPlan.APPLICATION_PATH, testMeta.dir);
+
     dag.setAttribute(com.datatorrent.api.Context.OperatorContext.STORAGE_AGENT, new MemoryStorageAgent());
     dag.setAttribute(LogicalPlan.STREAMING_WINDOW_SIZE_MILLIS, 1);
 
@@ -301,7 +315,7 @@ public class CheckpointTest
     o4p1.checkpoints.add(leafCheckpoint);
 
     UpdateCheckpointsContext ctx;
-    dnm.updateRecoveryCheckpoints(o1p1, ctx = new UpdateCheckpointsContext(clock, true));
+    dnm.updateRecoveryCheckpoints(o1p1, ctx = new UpdateCheckpointsContext(clock, true, Collections.<OperatorMeta, Set<OperatorMeta>>emptyMap()));
     Assert.assertEquals("initial checkpoint " + o1p1, Checkpoint.INITIAL_CHECKPOINT, o1p1.getRecoveryCheckpoint());
     Assert.assertEquals("initial checkpoint " + o2SLp1, leafCheckpoint, o2SLp1.getRecoveryCheckpoint());
     Assert.assertEquals("initial checkpoint " + o3SLp1, new Checkpoint(clock.getTime(), 0, 0), o3SLp1.getRecoveryCheckpoint());
@@ -335,8 +349,7 @@ public class CheckpointTest
   public void testUpdateCheckpointsProcessingTimeout()
   {
     MockClock clock = new MockClock();
-    LogicalPlan dag = new LogicalPlan();
-    dag.setAttribute(LogicalPlan.APPLICATION_PATH, testMeta.dir);
+
     dag.setAttribute(com.datatorrent.api.Context.OperatorContext.STORAGE_AGENT, new MemoryStorageAgent());
 
     GenericTestOperator o1 = dag.addOperator("o1", GenericTestOperator.class);
@@ -416,8 +429,7 @@ public class CheckpointTest
   public void testBlockedOperatorContainerRestart()
   {
     MockClock clock = new MockClock();
-    LogicalPlan dag = new LogicalPlan();
-    dag.setAttribute(LogicalPlan.APPLICATION_PATH, testMeta.dir);
+
     dag.setAttribute(com.datatorrent.api.Context.OperatorContext.STORAGE_AGENT, new MemoryStorageAgent());
 
     GenericTestOperator o1 = dag.addOperator("o1", GenericTestOperator.class);
@@ -472,5 +484,39 @@ public class CheckpointTest
 
   }
 
+  @Test
+  public void testBeforeCheckpointNotification() throws IOException, ClassNotFoundException
+  {
+    FSStorageAgent storageAgent = new FSStorageAgent(testMeta.getPath(), null);
+    dag.setAttribute(OperatorContext.STORAGE_AGENT, storageAgent);
+    dag.setAttribute(LogicalPlan.CHECKPOINT_WINDOW_COUNT, 1);
+    dag.setAttribute(LogicalPlan.STREAMING_WINDOW_SIZE_MILLIS, 50);
+
+    MockInputOperator o1 = dag.addOperator("o1", new MockInputOperator());
+
+    GenericTestOperator o2 = dag.addOperator("o2", GenericTestOperator.class);
+    dag.setAttribute(o2, OperatorContext.STATELESS, true);
+
+    dag.addStream("o1.outport", o1.outport, o2.inport1);
+
+    StramLocalCluster sc = new StramLocalCluster(dag);
+    sc.setHeartbeatMonitoringEnabled(false);
+    sc.run();
+
+    StreamingContainerManager dnm = sc.dnmgr;
+    PhysicalPlan plan = dnm.getPhysicalPlan();
+    List<PTOperator> o1ps = plan.getOperators(dag.getMeta(o1));
+    Assert.assertEquals("Number partitions", 1, o1ps.size());
+
+    PTOperator o1p1 = o1ps.get(0);
+    long[] ckWIds = storageAgent.getWindowIds(o1p1.getId());
+    Arrays.sort(ckWIds);
+    int expectedState = 0;
+    for (long windowId : ckWIds) {
+      Object ckState = storageAgent.load(o1p1.getId(), windowId);
+      Assert.assertEquals("Checkpointed state class", MockInputOperator.class, ckState.getClass());
+      Assert.assertEquals("Checkpoint state", expectedState++, ((MockInputOperator)ckState).checkpointState);
+    }
+  }
 
 }

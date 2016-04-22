@@ -1,21 +1,26 @@
 /**
- * Copyright (C) 2015 DataTorrent, Inc.
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *         http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package com.datatorrent.stram.plan.logical;
 
-import com.datatorrent.common.experimental.AppData;
+import java.lang.reflect.Field;
+import java.util.LinkedHashMap;
+
 import com.datatorrent.api.Context.PortContext;
 import com.datatorrent.api.Operator;
 import com.datatorrent.api.Operator.InputPort;
@@ -23,10 +28,8 @@ import com.datatorrent.api.Operator.OutputPort;
 import com.datatorrent.api.Operator.Port;
 import com.datatorrent.api.annotation.InputPortFieldAnnotation;
 import com.datatorrent.api.annotation.OutputPortFieldAnnotation;
+import com.datatorrent.common.experimental.AppData;
 import com.datatorrent.stram.ComponentContextPair;
-import java.lang.reflect.Field;
-
-import java.util.LinkedHashMap;
 
 /**
  * Utilities for dealing with {@link Operator} instances.
@@ -37,9 +40,9 @@ public abstract class Operators
 {
   public interface OperatorDescriptor
   {
-    public void addInputPort(Operator.InputPort<?> port, Field field, InputPortFieldAnnotation portAnnotation, AppData.QueryPort adqAnnotation);
+    void addInputPort(Operator.InputPort<?> port, Field field, InputPortFieldAnnotation portAnnotation, AppData.QueryPort adqAnnotation);
 
-    public void addOutputPort(Operator.OutputPort<?> port, Field field, OutputPortFieldAnnotation portAnnotation, AppData.ResultPort adrAnnotation);
+    void addOutputPort(Operator.OutputPort<?> port, Field field, OutputPortFieldAnnotation portAnnotation, AppData.ResultPort adrAnnotation);
   }
 
   public static class PortContextPair<PORT extends Port> extends ComponentContextPair<PORT, PortContext>
@@ -57,28 +60,31 @@ public abstract class Operators
 
   public static class PortMappingDescriptor implements OperatorDescriptor
   {
-    final public LinkedHashMap<String, PortContextPair<InputPort<?>>> inputPorts = new LinkedHashMap<String, PortContextPair<InputPort<?>>>();
-    final public LinkedHashMap<String, PortContextPair<OutputPort<?>>> outputPorts = new LinkedHashMap<String, PortContextPair<OutputPort<?>>>();
+    public final LinkedHashMap<String, PortContextPair<InputPort<?>>> inputPorts = new LinkedHashMap<>();
+    public final LinkedHashMap<String, PortContextPair<OutputPort<?>>> outputPorts = new LinkedHashMap<>();
 
     @Override
     public void addInputPort(Operator.InputPort<?> port, Field field, InputPortFieldAnnotation portAnnotation, AppData.QueryPort adqAnnotation)
     {
-      inputPorts.put(field.getName(), new PortContextPair<InputPort<?>>(port));
+      if (!inputPorts.containsKey(field.getName())) {
+        inputPorts.put(field.getName(), new PortContextPair<InputPort<?>>(port));
+      }
     }
 
     @Override
     public void addOutputPort(Operator.OutputPort<?> port, Field field, OutputPortFieldAnnotation portAnnotation, AppData.ResultPort adrAnnotation)
     {
-      outputPorts.put(field.getName(), new PortContextPair<OutputPort<?>>(port));
+      if (!outputPorts.containsKey(field.getName())) {
+        outputPorts.put(field.getName(), new PortContextPair<OutputPort<?>>(port));
+      }
     }
-  };
+  }
 
   public static void describe(Operator operator, OperatorDescriptor descriptor)
   {
-    for (Class<?> c = operator.getClass(); c != Object.class; c = c.getSuperclass())
-    {
+    for (Class<?> c = operator.getClass(); c != Object.class; c = c.getSuperclass()) {
       Field[] fields = c.getDeclaredFields();
-      for (Field field: fields) {
+      for (Field field : fields) {
         field.setAccessible(true);
         InputPortFieldAnnotation inputAnnotation = field.getAnnotation(InputPortFieldAnnotation.class);
         OutputPortFieldAnnotation outputAnnotation = field.getAnnotation(OutputPortFieldAnnotation.class);

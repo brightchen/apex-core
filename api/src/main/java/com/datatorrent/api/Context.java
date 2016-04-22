@@ -1,17 +1,20 @@
 /**
- * Copyright (C) 2015 DataTorrent, Inc.
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *         http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package com.datatorrent.api;
 
@@ -22,7 +25,13 @@ import java.util.Map;
 
 import com.datatorrent.api.Attribute.AttributeMap;
 import com.datatorrent.api.Operator.ProcessingMode;
-import com.datatorrent.api.StringCodec.*;
+import com.datatorrent.api.StringCodec.Class2String;
+import com.datatorrent.api.StringCodec.Collection2String;
+import com.datatorrent.api.StringCodec.Integer2String;
+import com.datatorrent.api.StringCodec.JsonStringCodec;
+import com.datatorrent.api.StringCodec.Map2String;
+import com.datatorrent.api.StringCodec.Object2String;
+import com.datatorrent.api.StringCodec.String2String;
 import com.datatorrent.api.annotation.Stateless;
 
 /**
@@ -91,6 +100,20 @@ public interface Context
      * @return The JVM options for the container
      */
     String getJVMOptions(List<DAG.OperatorMeta> operatorMetaList);
+  }
+
+  /**
+   * The streaming application master web service authentication enablement policy.<br/><br/>
+   * ENABLE - Enable authentication for web service access.<br/>
+   * FOLLOW_HADOOP_AUTH - Follow Hadoop authentication, if hadoop authentication is enabled, i.e., if it is set to something
+   *                other than "simple", enable authentication for web services as well.<br/>
+   * FOLLOW_HADOOP_HTTP_AUTH - Follow Hadoop HTTP authentication, if hadoop authentication is enabled, i.e., if it is
+   *                set to something other than "simple", enable authentication for web services as well.<br/>
+   * DISABLE - Disable authentication for web services.
+   */
+  enum StramHTTPAuthentication
+  {
+    ENABLE, FOLLOW_HADOOP_AUTH, FOLLOW_HADOOP_HTTP_AUTH, DISABLE
   }
 
   public interface PortContext extends Context
@@ -172,7 +195,8 @@ public interface Context
      */
     Attribute<Long> ACTIVATION_WINDOW_ID = new Attribute<Long>(Stateless.WINDOW_ID);
     /**
-     * Poll period in milliseconds when there are no tuples available on any of the input ports of the operator.
+     * It is a maximum poll period in milliseconds when there are no tuples available on any of the input ports of the
+     * operator. Platform uses the heuristic to change poll period from 0 to SPIN_MILLIS seconds.
      * Default value is 10 milliseconds.
      */
     Attribute<Integer> SPIN_MILLIS = new Attribute<Integer>(10);
@@ -289,7 +313,7 @@ public interface Context
      * by this construct is conveyed to tracker application and influences the aggregations done on it by the tracker.
      */
     Attribute<AutoMetric.DimensionsScheme> METRICS_DIMENSIONS_SCHEME = new Attribute<AutoMetric.DimensionsScheme>(new
-      Object2String<AutoMetric.DimensionsScheme>());
+        Object2String<AutoMetric.DimensionsScheme>());
 
     /**
      * Return the operator runtime id.
@@ -297,6 +321,12 @@ public interface Context
      * @return The id
      */
     int getId();
+
+    /**
+     * Return the number of windows before the next checkpoint including the current window.
+     * @return Number of windows from checkpoint, 1 if the checkpoint will be after the current window
+     */
+    int getWindowsFromCheckpoint();
 
     @SuppressWarnings("FieldNameHidesFieldInSuperclass")
     long serialVersionUID = AttributeMap.AttributeInitializer.initialize(OperatorContext.class);
@@ -331,10 +361,10 @@ public interface Context
      */
     Attribute<String> APPLICATION_DATA_LINK = new Attribute<String>(new String2String());
     /**
-     * Transport to push the stats and the metrics, "builtin:{topic}" if STRAM should push the data directly
-     * using websocket with the given topic
+     * Transport to push the stats and the metrics.
+     * If using the built-in transport, please use an AutoMetricBuiltInTransport object
      */
-    Attribute<String> METRICS_TRANSPORT = new Attribute<String>(new String2String());
+    Attribute<AutoMetric.Transport> METRICS_TRANSPORT = new Attribute<>(new Object2String<AutoMetric.Transport>());
     /**
      * Application instance identifier. An application with the same name can run in multiple instances, each with a
      * unique identifier. The identifier is set by the client that submits the application and can be used in operators
@@ -408,6 +438,10 @@ public interface Context
      */
     Attribute<String> GATEWAY_PASSWORD = new Attribute<String>(new String2String());
     /**
+     * The timeout when connecting to the pubsub service in gateway
+     */
+    Attribute<Integer> PUBSUB_CONNECT_TIMEOUT_MILLIS = new Attribute<>(500);
+    /**
      * Maximum number of simultaneous heartbeat connections to process. Default value is 30.
      */
     Attribute<Integer> HEARTBEAT_LISTENER_THREAD_COUNT = new Attribute<Integer>(30);
@@ -457,10 +491,34 @@ public interface Context
      */
     Attribute<ContainerOptConfigurator> CONTAINER_OPTS_CONFIGURATOR = new Attribute<ContainerOptConfigurator>(new Object2String<ContainerOptConfigurator>());
     /**
+     * The policy for enabling stram web services authentication.<br/>
+     * See {@link StramHTTPAuthentication} for the different options.<br/>
+     * Default value is StramHTTPAuthentication.FOLLOW_HADOOP_AUTH
+     */
+    Attribute<StramHTTPAuthentication> STRAM_HTTP_AUTHENTICATION = new Attribute<>(StramHTTPAuthentication.FOLLOW_HADOOP_AUTH, new StringCodec.Enum2String<>(StramHTTPAuthentication.class));
+    /**
      * The string codec map for classes that are to be set or get through properties as strings.
      * Only supports string codecs that have a constructor with no arguments
      */
     Attribute<Map<Class<?>, Class<? extends StringCodec<?>>>> STRING_CODECS = new Attribute<Map<Class<?>, Class<? extends StringCodec<?>>>>(new Map2String<Class<?>, Class<? extends StringCodec<?>>>(",", "=", new Class2String<Object>(), new Class2String<StringCodec<?>>()));
+
+    /**
+     * The number of consecutive container failures that should lead to
+     * blacklisting of nodes by application master
+     * Blacklisting for nodes is disabled for the default value
+     */
+    Attribute<Integer> MAX_CONSECUTIVE_CONTAINER_FAILURES_FOR_BLACKLIST = new Attribute<Integer>(Integer.MAX_VALUE);
+
+    /**
+     * The amount of time to wait before removing failed nodes from blacklist
+     */
+    Attribute<Long> BLACKLISTED_NODE_REMOVAL_TIME_MILLIS = new Attribute<Long>(new Long(60 * 60 * 1000));
+
+    /**
+     * Affinity rules for specifying affinity and anti-affinity between logical operators
+     */
+    Attribute<AffinityRulesSet> AFFINITY_RULES_SET = new Attribute<AffinityRulesSet>(new JsonStringCodec<AffinityRulesSet>(AffinityRulesSet.class));
+
     @SuppressWarnings(value = "FieldNameHidesFieldInSuperclass")
     long serialVersionUID = AttributeMap.AttributeInitializer.initialize(DAGContext.class);
   }

@@ -1,17 +1,20 @@
 /**
- * Copyright (C) 2015 DataTorrent, Inc.
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *         http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package com.datatorrent.stram;
 
@@ -24,7 +27,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
 import com.datatorrent.api.Stats.OperatorStats;
-
 import com.datatorrent.stram.api.Checkpoint;
 import com.datatorrent.stram.api.StreamingContainerUmbilicalProtocol.ContainerHeartbeat;
 import com.datatorrent.stram.api.StreamingContainerUmbilicalProtocol.ContainerHeartbeatResponse;
@@ -55,11 +57,13 @@ public class MockContainer
     Assert.assertEquals(PTContainer.State.ACTIVE, container.getState());
   }
 
-  private StreamingContainerAgent assignContainer(StreamingContainerManager scm, PTContainer c) {
+  private StreamingContainerAgent assignContainer(StreamingContainerManager scm, PTContainer c)
+  {
     c.setResourceRequestPriority(c.getId());
     String containerId = "container" + c.getId();
-    InetSocketAddress bufferServerAddress = InetSocketAddress.createUnresolved(containerId+"Host", 0);
-    return scm.assignContainer(new StreamingContainerManager.ContainerResource(c.getId(), containerId, "localhost", 1024,0, null), bufferServerAddress);
+    InetSocketAddress bufferServerAddress = InetSocketAddress.createUnresolved(containerId + "Host", 0);
+    return scm.assignContainer(new StreamingContainerManager.ContainerResource(c.getId(), containerId, "localhost",
+        1024, 0, null), bufferServerAddress);
   }
 
   public void deploy()
@@ -74,7 +78,7 @@ public class MockContainer
 
     ContainerHeartbeatResponse chr = sca.dnmgr.processHeartbeat(hb); // get deploy request
     Assert.assertNotNull(chr.deployRequest);
-    Assert.assertEquals(""+chr.deployRequest, container.getOperators().size(), chr.deployRequest.size());
+    Assert.assertEquals("" + chr.deployRequest, container.getOperators().size(), chr.deployRequest.size());
     Assert.assertEquals(PTContainer.State.ACTIVE, container.getState());
 
     for (PTOperator oper : container.getOperators()) {
@@ -110,7 +114,8 @@ public class MockContainer
     Assert.assertNull(chr.deployRequest);
   }
 
-  public MockOperatorStats stats(int operatorId) {
+  public MockOperatorStats stats(int operatorId)
+  {
     MockOperatorStats os = this.stats.get(operatorId);
     if (os == null) {
       os = new MockOperatorStats(operatorId);
@@ -131,17 +136,20 @@ public class MockContainer
       this.operatorId = operatorId;
     }
 
-    public MockOperatorStats deployState(OperatorHeartbeat.DeployState s) {
+    public MockOperatorStats deployState(OperatorHeartbeat.DeployState s)
+    {
       this.deployState = s;
       return this;
     }
 
-    public MockOperatorStats currentWindowId(long windowId) {
+    public MockOperatorStats currentWindowId(long windowId)
+    {
       this.currentWindowId = windowId;
       return this;
     }
 
-    public MockOperatorStats checkpointWindowId(long windowId) {
+    public MockOperatorStats checkpointWindowId(long windowId)
+    {
       this.checkpointWindowId = windowId;
       return this;
     }

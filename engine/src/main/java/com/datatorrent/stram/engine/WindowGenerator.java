@@ -1,20 +1,25 @@
 /**
- * Copyright (C) 2015 DataTorrent, Inc.
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *         http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package com.datatorrent.stram.engine;
 
+import java.util.Queue;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
 
 import org.slf4j.Logger;
@@ -48,7 +53,7 @@ public class WindowGenerator extends MuxReservoir implements Stream, Runnable
   public static final int MAX_WINDOW_ID = WINDOW_MASK - (WINDOW_MASK % 1000) - 1;
   public static final int MAX_WINDOW_WIDTH = (int)(Long.MAX_VALUE / MAX_WINDOW_ID);
   private final ScheduledExecutorService ses;
-  private final MasterReservoir masterReservoir;
+  private final BlockingQueue<Tuple> queue;
   private long firstWindowMillis; // Window start time
   private int windowWidthMillis; // Window size
   private long currentWindowMillis;
@@ -62,7 +67,7 @@ public class WindowGenerator extends MuxReservoir implements Stream, Runnable
   public WindowGenerator(ScheduledExecutorService service, int capacity)
   {
     ses = service;
-    masterReservoir = new MasterReservoir(capacity);
+    queue = new CircularBuffer<>(capacity);
   }
 
   /**
@@ -83,8 +88,8 @@ public class WindowGenerator extends MuxReservoir implements Stream, Runnable
     baseSeconds = (resetWindowMillis / 1000) << 32;
     //logger.info("generating reset -> begin {}", Codec.getStringWindowId(baseSeconds));
 
-    masterReservoir.put(new ResetWindowTuple(baseSeconds | windowWidthMillis));
-    masterReservoir.put(new Tuple(MessageType.BEGIN_WINDOW, baseSeconds | windowId));
+    queue.put(new ResetWindowTuple(baseSeconds | windowWidthMillis));
+    queue.put(new Tuple(MessageType.BEGIN_WINDOW, baseSeconds | windowId));
   }
 
   /**
@@ -93,19 +98,18 @@ public class WindowGenerator extends MuxReservoir implements Stream, Runnable
    */
   private void endCurrentBeginNewWindow() throws InterruptedException
   {
-    masterReservoir.put(new EndWindowTuple(baseSeconds | windowId));
+    queue.put(new EndWindowTuple(baseSeconds | windowId));
     if (++checkPointWindowCount == checkpointCount) {
-      masterReservoir.put(new Tuple(MessageType.CHECKPOINT, baseSeconds | windowId));
+      queue.put(new Tuple(MessageType.CHECKPOINT, baseSeconds | windowId));
       checkPointWindowCount = 0;
     }
 
     if (windowId == MAX_WINDOW_ID) {
       advanceWindow();
       run();
-    }
-    else {
+    } else {
       advanceWindow();
-      masterReservoir.put(new Tuple(MessageType.BEGIN_WINDOW, baseSeconds | windowId));
+      queue.put(new Tuple(MessageType.BEGIN_WINDOW, baseSeconds | windowId));
     }
   }
 
@@ -114,8 +118,7 @@ public class WindowGenerator extends MuxReservoir implements Stream, Runnable
   {
     try {
       resetBeginNewWindow();
-    }
-    catch (InterruptedException ie) {
+    } catch (InterruptedException ie) {
       handleException(ie);
     }
   }
@@ -163,8 +166,7 @@ public class WindowGenerator extends MuxReservoir implements Stream, Runnable
       {
         try {
           endCurrentBeginNewWindow();
-        }
-        catch (InterruptedException ie) {
+        } catch (InterruptedException ie) {
           handleException(ie);
         }
       }
@@ -175,27 +177,23 @@ public class WindowGenerator extends MuxReservoir implements Stream, Runnable
     if (currentWindowMillis < currentTms) {
       logger.info("Catching up from {} to {}", currentWindowMillis, currentTms);
       ses.schedule(
-              new Runnable()
-      {
-        @Override
-        public void run()
-        {
-          try {
-            resetBeginNewWindow();
-            do {
-              endCurrentBeginNewWindow();
+          new Runnable()
+          {
+            @Override
+            public void run()
+            {
+              try {
+                resetBeginNewWindow();
+                do {
+                  endCurrentBeginNewWindow();
+                } while (currentWindowMillis < ses.getCurrentTimeMillis());
+              } catch (InterruptedException ie) {
+                handleException(ie);
+              }
             }
-            while (currentWindowMillis < ses.getCurrentTimeMillis());
-          }
-          catch (InterruptedException ie) {
-            handleException(ie);
-          }
-        }
-
-      },
-              0, TimeUnit.MILLISECONDS);
-    }
-    else {
+          },
+          0, TimeUnit.MILLISECONDS);
+    } else {
       logger.info("The input will start to be sliced in {} milliseconds", currentWindowMillis - currentTms);
       ses.schedule(this, currentWindowMillis - currentTms, TimeUnit.MILLISECONDS);
     }
@@ -213,8 +211,7 @@ public class WindowGenerator extends MuxReservoir implements Stream, Runnable
   {
     if (e instanceof InterruptedException) {
       ses.shutdown();
-    }
-    else {
+    } else {
       throw new RuntimeException(e);
     }
   }
@@ -231,10 +228,9 @@ public class WindowGenerator extends MuxReservoir implements Stream, Runnable
   }
 
   @Override
-  @SuppressWarnings("ReturnOfCollectionOrArrayField")
-  public Reservoir getMasterReservoir()
+  protected Queue getQueue()
   {
-    return masterReservoir;
+    return queue;
   }
 
   @Override
@@ -269,6 +265,34 @@ public class WindowGenerator extends MuxReservoir implements Stream, Runnable
     return getWindowMillis(windowId, firstWindowMillis, windowWidthMillis) + windowWidthMillis;
   }
 
+  public static long getNextWindowId(long windowId, long firstWindowMillis, long windowWidthMillis)
+  {
+    return getAheadWindowId(windowId, firstWindowMillis, windowWidthMillis, 1);
+  }
+
+  public static long getAheadWindowId(long windowId, long firstWindowMillis, long windowWidthMillis, int ahead)
+  {
+    long millis = getWindowMillis(windowId, firstWindowMillis, windowWidthMillis);
+    millis += ahead * windowWidthMillis;
+    return getWindowId(millis, firstWindowMillis, windowWidthMillis);
+  }
+
+  /**
+   * Returns the number of windows windowIdA is ahead of windowIdB.
+   *
+   * @param windowIdA
+   * @param windowIdB
+   * @param firstWindowMillis
+   * @param windowWidthMillis
+   * @return the number of windows ahead, negative if windowIdA is behind windowIdB
+   */
+  public static long compareWindowId(long windowIdA, long windowIdB, long firstWindowMillis, long windowWidthMillis)
+  {
+    long millisA = getWindowMillis(windowIdA, firstWindowMillis, windowWidthMillis);
+    long millisB = getWindowMillis(windowIdB, firstWindowMillis, windowWidthMillis);
+    return (millisA - millisB) / windowWidthMillis;
+  }
+
   /**
    * @param windowId
    * @param firstWindowMillis
@@ -277,18 +301,31 @@ public class WindowGenerator extends MuxReservoir implements Stream, Runnable
    */
   public static long getWindowMillis(long windowId, long firstWindowMillis, long windowWidthMillis)
   {
-    long millis = (windowId >> 32) * 1000 + windowWidthMillis * (windowId & WindowGenerator.WINDOW_MASK);
-    millis = millis > firstWindowMillis ? millis : firstWindowMillis;
-    return millis;
+    if (windowId == -1) {
+      return firstWindowMillis;
+    }
+    long baseMillis = (windowId >> 32) * 1000;
+    long diff = baseMillis - firstWindowMillis;
+    long baseChangeInterval = windowWidthMillis * (WindowGenerator.MAX_WINDOW_ID + 1);
+    assert (baseChangeInterval > 0);
+    long multiplier = diff / baseChangeInterval;
+    if (diff % baseChangeInterval > 0) {
+      multiplier++;
+    }
+    assert (multiplier >= 0);
+    windowId = windowId & WindowGenerator.WINDOW_MASK;
+    return firstWindowMillis + (multiplier * baseChangeInterval) + (windowId * windowWidthMillis);
   }
 
-  private class MasterReservoir extends CircularBuffer<Tuple> implements Reservoir
+  /**
+   * Utility function to get the base seconds from a window id
+   *
+   * @param windowId
+   * @return the base seconds for the given window id
+   */
+  public static long getBaseSecondsFromWindowId(long windowId)
   {
-    MasterReservoir(int n)
-    {
-      super(n);
-    }
-
+    return windowId >>> 32;
   }
 
   private static final Logger logger = LoggerFactory.getLogger(WindowGenerator.class);

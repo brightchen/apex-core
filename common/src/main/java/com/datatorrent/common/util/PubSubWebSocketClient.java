@@ -1,29 +1,31 @@
 /**
- * Copyright (C) 2015 DataTorrent, Inc.
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *         http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package com.datatorrent.common.util;
 
 import java.io.IOException;
 import java.net.URI;
 import java.util.List;
-import java.util.concurrent.*;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
-
-import com.ning.http.client.*;
-import com.ning.http.client.AsyncHttpClient.BoundRequestBuilder;
-import com.ning.http.client.websocket.*;
 
 import org.codehaus.jackson.JsonParseException;
 import org.codehaus.jackson.map.JsonMappingException;
@@ -33,12 +35,20 @@ import org.codehaus.jettison.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.datatorrent.common.util.PubSubMessage.PubSubMessageType;
+import com.google.common.base.Throwables;
+import com.ning.http.client.AsyncCompletionHandler;
+import com.ning.http.client.AsyncHttpClient;
+import com.ning.http.client.AsyncHttpClient.BoundRequestBuilder;
+import com.ning.http.client.AsyncHttpClientConfigBean;
+import com.ning.http.client.Cookie;
+import com.ning.http.client.Response;
+import com.ning.http.client.websocket.WebSocket;
+import com.ning.http.client.websocket.WebSocketTextListener;
+import com.ning.http.client.websocket.WebSocketUpgradeHandler;
 
 import com.datatorrent.api.Component;
 import com.datatorrent.api.Context;
-
-import com.datatorrent.netlet.util.DTThrowable;
+import com.datatorrent.common.util.PubSubMessage.PubSubMessageType;
 
 /**
  * <p>Abstract PubSubWebSocketClient class.</p>
@@ -68,14 +78,11 @@ public abstract class PubSubWebSocketClient implements Component<Context>
       try {
         pubSubMessage = codec.parseMessage(message);
         PubSubWebSocketClient.this.onMessage(pubSubMessage.getType().getIdentifier(), pubSubMessage.getTopic(), pubSubMessage.getData());
-      }
-      catch (JsonParseException jpe) {
+      } catch (JsonParseException jpe) {
         logger.warn("Ignoring unparseable JSON message: {}", message, jpe);
-      }
-      catch (JsonMappingException jme) {
+      } catch (JsonMappingException jme) {
         logger.warn("Ignoring JSON mapping in message: {}", message, jme);
-      }
-      catch (IOException ex) {
+      } catch (IOException ex) {
         onError(ex);
       }
     }
@@ -172,8 +179,7 @@ public abstract class PubSubWebSocketClient implements Component<Context>
       try {
         json.put("userName", userName);
         json.put("password", password);
-      }
-      catch (JSONException ex) {
+      } catch (JSONException ex) {
         throw new RuntimeException(ex);
       }
       Response response = client.preparePost(loginUrl).setHeader("Content-Type", "application/json").setBody(json.toString()).execute().get();
@@ -198,8 +204,7 @@ public abstract class PubSubWebSocketClient implements Component<Context>
       try {
         json.put("userName", userName);
         json.put("password", password);
-      }
-      catch (JSONException ex) {
+      } catch (JSONException ex) {
         throw new RuntimeException(ex);
       }
       client.preparePost(loginUrl).setHeader("Content-Type", "application/json").setBody(json.toString()).execute(new AsyncCompletionHandler<Response>()
@@ -220,9 +225,8 @@ public abstract class PubSubWebSocketClient implements Component<Context>
         }
 
       });
-    }
-    else {
-      client.prepareGet(uri.toString()).execute(new WebSocketUpgradeHandler.Builder().addWebSocketListener(new PubSubWebSocket()
+    } else {
+      final PubSubWebSocket webSocket = new PubSubWebSocket()
       {
         @Override
         public void onOpen(WebSocket ws)
@@ -230,8 +234,9 @@ public abstract class PubSubWebSocketClient implements Component<Context>
           connection = ws;
           super.onOpen(ws);
         }
-
-      }).build());
+      };
+      client.prepareGet(uri.toString()).execute(
+          new WebSocketUpgradeHandler.Builder().addWebSocketListener(webSocket).build());
     }
   }
 
@@ -286,11 +291,11 @@ public abstract class PubSubWebSocketClient implements Component<Context>
     Throwable t = throwable.get();
     if (t instanceof IOException) {
       throw (IOException)t;
-    }
-    else {
-      DTThrowable.rethrow(t);
+    } else {
+      throw Throwables.propagate(t);
     }
   }
+
   /**
    * <p>publish.</p>
    *

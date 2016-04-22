@@ -1,17 +1,20 @@
 /**
- * Copyright (C) 2015 DataTorrent, Inc.
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *         http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package com.datatorrent.stram.engine;
 
@@ -39,8 +42,8 @@ import net.engio.mbassy.listener.Handler;
 public class BufferServerStatsSubscriber
 {
   // key: streamId, value: byte counter stream
-  private HashMap<String, ByteCounterStream> inputStreams = new HashMap<String, ByteCounterStream>();
-  private HashMap<String, List<ByteCounterStream>> outputStreams = new HashMap<String, List<ByteCounterStream>>();
+  private HashMap<String, ByteCounterStream> inputStreams = new HashMap<>();
+  private HashMap<String, List<ByteCounterStream>> outputStreams = new HashMap<>();
 
   @Handler
   public void handleStreamActivation(StreamActivationEvent sae)
@@ -52,12 +55,11 @@ public class BufferServerStatsSubscriber
       if (sinkId.startsWith("tcp:")) {
         List<ByteCounterStream> portStreams = outputStreams.get(portId);
         if (portStreams == null) {
-          portStreams = new ArrayList<ByteCounterStream>();
+          portStreams = new ArrayList<>();
           outputStreams.put(portId, portStreams);
         }
-        portStreams.add((ByteCounterStream) stream.component);
-      }
-      else {
+        portStreams.add((ByteCounterStream)stream.component);
+      } else {
         inputStreams.put(portId, (ByteCounterStream)stream.component);
       }
     }
@@ -78,8 +80,7 @@ public class BufferServerStatsSubscriber
             outputStreams.remove(portId);
           }
         }
-      }
-      else {
+      } else {
         inputStreams.remove(portId);
       }
     }

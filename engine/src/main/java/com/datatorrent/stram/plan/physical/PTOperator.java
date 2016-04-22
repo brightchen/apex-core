@@ -1,21 +1,31 @@
 /**
- * Copyright (C) 2015 DataTorrent, Inc.
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *         http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package com.datatorrent.stram.plan.physical;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 import org.apache.commons.lang.builder.ToStringBuilder;
 import org.apache.commons.lang.builder.ToStringStyle;
@@ -56,7 +66,8 @@ public class PTOperator implements java.io.Serializable
 
   public static final Recoverable SET_OPERATOR_STATE = new SetOperatorState();
 
-  public enum State {
+  public enum State
+  {
     PENDING_DEPLOY,
     ACTIVE,
     PENDING_UNDEPLOY,
@@ -78,6 +89,7 @@ public class PTOperator implements java.io.Serializable
     public final PartitionKeys partitions;
     public final PTOutput source;
     public final String portName;
+    public final boolean delay;
 
     /**
      *
@@ -87,7 +99,7 @@ public class PTOperator implements java.io.Serializable
      * @param partitions
      * @param source
      */
-    protected PTInput(String portName, StreamMeta logicalStream, PTOperator target, PartitionKeys partitions, PTOutput source)
+    protected PTInput(String portName, StreamMeta logicalStream, PTOperator target, PartitionKeys partitions, PTOutput source, boolean delay)
     {
       this.logicalStream = logicalStream;
       this.target = target;
@@ -95,6 +107,7 @@ public class PTOperator implements java.io.Serializable
       this.source = source;
       this.portName = portName;
       this.source.sinks.add(this);
+      this.delay = delay;
     }
 
     /**
@@ -136,7 +149,7 @@ public class PTOperator implements java.io.Serializable
       this.logicalStream = logicalStream;
       this.source = source;
       this.portName = portName;
-      this.sinks = new ArrayList<PTInput>();
+      this.sinks = new ArrayList<>();
     }
 
     /**
@@ -158,34 +171,34 @@ public class PTOperator implements java.io.Serializable
     public Set<PTOperator> threadLocalSinks()
     {
       Set<PTOperator> threadLocalOperators = null;
-      if (logicalStream!= null && logicalStream.getLocality() == Locality.THREAD_LOCAL) {
-        threadLocalOperators = new HashSet<PTOperator>();
-        for(PTInput sink: this.sinks){
+      if (logicalStream != null && logicalStream.getLocality() == Locality.THREAD_LOCAL) {
+        threadLocalOperators = new HashSet<>();
+        for (PTInput sink : this.sinks) {
           threadLocalOperators.add(sink.target);
         }
       }
       return threadLocalOperators;
     }
 
-   /**
-    *
-    * @return String
-    */
-   @Override
-   public String toString() {
-     return new ToStringBuilder(this, ToStringStyle.SHORT_PREFIX_STYLE).
-         append("o", this.source).
-         append("port", this.portName).
-         append("stream", this.logicalStream.getName()).
-         toString();
-   }
+    /**
+     * @return String
+     */
+    @Override
+    public String toString()
+    {
+      return new ToStringBuilder(this, ToStringStyle.SHORT_PREFIX_STYLE)
+          .append("o", this.source)
+          .append("port", this.portName)
+          .append("stream", this.logicalStream.getName())
+          .toString();
+    }
 
   }
 
   private static class SetOperatorState implements Recoverable
   {
-    final private int operatorId;
-    final private PTOperator.State state;
+    private final int operatorId;
+    private final PTOperator.State state;
 
     private SetOperatorState()
     {
@@ -220,7 +233,7 @@ public class PTOperator implements java.io.Serializable
 
   PTOperator(PhysicalPlan plan, int id, String name, OperatorMeta om)
   {
-    this.checkpoints = new LinkedList<Checkpoint>();
+    this.checkpoints = new LinkedList<>();
     this.plan = plan;
     this.name = name;
     this.id = id;
@@ -249,22 +262,23 @@ public class PTOperator implements java.io.Serializable
 
   public List<StreamingContainerUmbilicalProtocol.StramToNodeRequest> deployRequests = Collections.emptyList();
 
-  public final HashMap<InputPortMeta, PTOperator> upstreamMerge = new HashMap<InputPortMeta, PTOperator>();
-
+  public final HashMap<InputPortMeta, PTOperator> upstreamMerge = new HashMap<>();
 
   /**
-   *
    * @return Operator
    */
-  public OperatorMeta getOperatorMeta() {
+  public OperatorMeta getOperatorMeta()
+  {
     return this.operatorMeta;
   }
 
-  public PTOperator.State getState() {
+  public PTOperator.State getState()
+  {
     return state;
   }
 
-  public void setState(PTOperator.State state) {
+  public void setState(PTOperator.State state)
+  {
     this.getPlan().getContext().writeJournal(new SetOperatorState(getId(), state));
     this.state = state;
   }
@@ -272,9 +286,11 @@ public class PTOperator implements java.io.Serializable
   /**
    * Return the most recent checkpoint for this operator,
    * representing the last getSaveStream reported.
+   *
    * @return long
    */
-  public Checkpoint getRecentCheckpoint() {
+  public Checkpoint getRecentCheckpoint()
+  {
     if (checkpoints.isEmpty()) {
       return Checkpoint.INITIAL_CHECKPOINT;
     }
@@ -302,19 +318,23 @@ public class PTOperator implements java.io.Serializable
    *
    * @return String
    */
-  public String getLogicalId() {
+  public String getLogicalId()
+  {
     return operatorMeta.getName();
   }
 
-  public int getId() {
+  public int getId()
+  {
     return id;
   }
 
-  public String getName() {
+  public String getName()
+  {
     return name;
   }
 
-  public PhysicalPlan getPlan() {
+  public PhysicalPlan getPlan()
+  {
     return plan;
   }
 
@@ -328,12 +348,14 @@ public class PTOperator implements java.io.Serializable
     return outputs;
   }
 
-  public PTContainer getContainer() {
+  public PTContainer getContainer()
+  {
     return container;
   }
 
-  public Map<InputPort<?>, PartitionKeys> getPartitionKeys() {
-    Map<InputPort<?>,PartitionKeys> pkeys = null;
+  public Map<InputPort<?>, PartitionKeys> getPartitionKeys()
+  {
+    Map<InputPort<?>, PartitionKeys> pkeys = null;
     if (partitionKeys != null) {
       pkeys = Maps.newHashMapWithExpectedSize(partitionKeys.size());
       for (Map.Entry<InputPortMeta, PartitionKeys> e : partitionKeys.entrySet()) {
@@ -354,12 +376,13 @@ public class PTOperator implements java.io.Serializable
     return bufferServerMemory;
   }
 
-  public Set<PTOperator> getThreadLocalOperators(){
+  public Set<PTOperator> getThreadLocalOperators()
+  {
     Set<PTOperator> threadLocalOperators = null;
     for (int i = 0; i < outputs.size(); i++) {
-      if (outputs.get(i).logicalStream != null && outputs.get(i).logicalStream.getLocality() == Locality.THREAD_LOCAL){
-        if(threadLocalOperators == null){
-          threadLocalOperators = new HashSet<PTOperator>();
+      if (outputs.get(i).logicalStream != null && outputs.get(i).logicalStream.getLocality() == Locality.THREAD_LOCAL) {
+        if (threadLocalOperators == null) {
+          threadLocalOperators = new HashSet<>();
         }
         threadLocalOperators.addAll(outputs.get(i).threadLocalSinks());
       }
@@ -367,7 +390,8 @@ public class PTOperator implements java.io.Serializable
     return threadLocalOperators;
   }
 
-  public void setPartitionKeys(Map<InputPort<?>, PartitionKeys> portKeys) {
+  public void setPartitionKeys(Map<InputPort<?>, PartitionKeys> portKeys)
+  {
     if (portKeys == null) {
       this.partitionKeys = Collections.emptyMap();
       return;
@@ -421,7 +445,8 @@ public class PTOperator implements java.io.Serializable
     return c;
   }
 
-  HostOperatorSet getGrouping(Locality type) {
+  HostOperatorSet getGrouping(Locality type)
+  {
     HostOperatorSet grpObj = this.groupings.get(type);
     if (grpObj == null) {
       grpObj = new HostOperatorSet();
@@ -431,7 +456,8 @@ public class PTOperator implements java.io.Serializable
     return grpObj;
   }
 
-  public HostOperatorSet getNodeLocalOperators() {
+  public HostOperatorSet getNodeLocalOperators()
+  {
     return getGrouping(Locality.NODE_LOCAL);
   }
 
@@ -441,18 +467,22 @@ public class PTOperator implements java.io.Serializable
 
     private String host;
     private Set<PTOperator> operatorSet;
+
     public String getHost()
     {
       return host;
     }
+
     public void setHost(String host)
     {
       this.host = host;
     }
+
     public Set<PTOperator> getOperatorSet()
     {
       return operatorSet;
     }
+
     public void setOperatorSet(Set<PTOperator> operatorSet)
     {
       this.operatorSet = operatorSet;

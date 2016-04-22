@@ -1,30 +1,34 @@
 /**
- * Copyright (C) 2015 DataTorrent, Inc.
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *         http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package com.datatorrent.stram.client;
 
+import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 
 import javax.ws.rs.core.Cookie;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.NewCookie;
 import javax.ws.rs.core.UriBuilder;
-
-import com.sun.jersey.api.client.Client;
-import com.sun.jersey.api.client.ClientResponse;
 
 import org.codehaus.jettison.json.JSONException;
 import org.codehaus.jettison.json.JSONObject;
@@ -39,8 +43,15 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.yarn.api.records.ApplicationReport;
+import org.apache.hadoop.yarn.api.records.YarnApplicationState;
 import org.apache.hadoop.yarn.client.api.YarnClient;
 import org.apache.hadoop.yarn.util.ConverterUtils;
+
+import com.google.common.collect.HashMultimap;
+import com.google.common.collect.Multimap;
+import com.sun.jersey.api.client.Client;
+import com.sun.jersey.api.client.ClientHandlerException;
+import com.sun.jersey.api.client.ClientResponse;
 
 import com.datatorrent.stram.client.WebServicesVersionConversion.IncompatibleVersionException;
 import com.datatorrent.stram.client.WebServicesVersionConversion.VersionConversionFilter;
@@ -49,12 +60,6 @@ import com.datatorrent.stram.util.HeaderClientFilter;
 import com.datatorrent.stram.util.LRUCache;
 import com.datatorrent.stram.util.WebServicesClient;
 import com.datatorrent.stram.webapp.WebServices;
-import com.google.common.collect.HashMultimap;
-import com.google.common.collect.Multimap;
-import com.sun.jersey.api.client.ClientHandlerException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
 
 /**
  * <p>Abstract StramAgent class.</p>
@@ -80,12 +85,10 @@ public class StramAgent extends FSAgent
       try {
         if (permissionsInfo != null) {
           this.permissionsInfo = new PermissionsInfo(permissionsInfo);
-        }
-        else {
+        } else {
           this.permissionsInfo = null;
         }
-      }
-      catch (JSONException ex) {
+      } catch (JSONException ex) {
         LOG.error("Caught exception when processing permissions info", ex);
       }
     }
@@ -121,7 +124,7 @@ public class StramAgent extends FSAgent
 
   private static final Logger LOG = LoggerFactory.getLogger(StramAgent.class);
   protected String resourceManagerWebappAddress;
-  private final Map<String, StramWebServicesInfo> webServicesInfoMap = new LRUCache<String, StramWebServicesInfo>(100, true);
+  private final Map<String, StramWebServicesInfo> webServicesInfoMap = new LRUCache<>(100, true);
   protected String defaultStramRoot = null;
   protected Configuration conf;
 
@@ -226,7 +229,7 @@ public class StramAgent extends FSAgent
 
   public static class StramUriSpec
   {
-    private final List<String> paths = new ArrayList<String>();
+    private final List<String> paths = new ArrayList<>();
     private final Multimap<String, Object> queryParams = HashMultimap.create();
 
     public StramUriSpec path(String elem)
@@ -318,6 +321,7 @@ public class StramAgent extends FSAgent
     return info == null ? getAppsRoot() + "/" + appId : info.appPath;
   }
 
+  // Note that this method only works if the app is running.  We might want to deprecate this method.
   public String getUser(String appid)
   {
     StramWebServicesInfo info = getWebServicesInfo(appid);
@@ -331,13 +335,21 @@ public class StramAgent extends FSAgent
     try {
       yarnClient.init(conf);
       yarnClient.start();
+
       ApplicationReport ar = yarnClient.getApplicationReport(ConverterUtils.toApplicationId(appId));
+      if (ar == null) {
+        LOG.warn("YARN does not have record for this application {}", appId);
+        return null;
+      } else if (ar.getYarnApplicationState() != YarnApplicationState.RUNNING) {
+        LOG.debug("Application {} is not running (state: {})", appId, ar.getYarnApplicationState());
+        return null;
+      }
+
       String trackingUrl = ar.getTrackingUrl();
       if (!trackingUrl.startsWith("http://")
-              && !trackingUrl.startsWith("https://")) {
+          && !trackingUrl.startsWith("https://")) {
         url = "http://" + trackingUrl;
-      }
-      else {
+      } else {
         url = trackingUrl;
       }
       if (StringUtils.isBlank(url)) {
@@ -348,12 +360,10 @@ public class StramAgent extends FSAgent
         url = url.substring(0, url.length() - 1);
       }
       url += WebServices.PATH;
-    }
-    catch (Exception ex) {
-      //LOG.error("Caught exception when retrieving web services info", ex);
+    } catch (Exception ex) {
+      LOG.error("Caught exception when retrieving web services info", ex);
       return null;
-    }
-    finally {
+    } finally {
       yarnClient.stop();
     }
 
@@ -366,8 +376,8 @@ public class StramAgent extends FSAgent
       while (true) {
         LOG.debug("Accessing url {}", url);
         clientResponse = webServicesClient.process(url,
-                                                   ClientResponse.class,
-                                                   new WebServicesClient.GetWebServicesHandler<ClientResponse>());
+            ClientResponse.class,
+            new WebServicesClient.GetWebServicesHandler<ClientResponse>());
         String val = clientResponse.getHeaders().getFirst("Refresh");
         if (val == null) {
           break;
@@ -385,8 +395,7 @@ public class StramAgent extends FSAgent
 
       if (!UserGroupInformation.isSecurityEnabled()) {
         response = new JSONObject(clientResponse.getEntity(String.class));
-      }
-      else {
+      } else {
         if (UserGroupInformation.isSecurityEnabled()) {
           for (NewCookie nc : clientResponse.getCookies()) {
             if (LOG.isDebugEnabled()) {
@@ -407,24 +416,14 @@ public class StramAgent extends FSAgent
       String appPath = response.getString("appPath");
       String user = response.getString("user");
       JSONObject permissionsInfo = null;
-      FSDataInputStream is = null;
-      try {
-        is = fileSystem.open(new Path(appPath, "permissions.json"));
+      try (FSDataInputStream is = fileSystem.open(new Path(appPath, "permissions.json"))) {
         permissionsInfo = new JSONObject(IOUtils.toString(is));
-      }
-      catch (JSONException ex) {
-        LOG.error("Error reading from the permissions info. Ignoring", ex);
-      }
-      catch (IOException ex) {
-        // ignore
-      }
-      finally {
-        IOUtils.closeQuietly(is);
+      } catch (FileNotFoundException ex) {
+        // ignore if file is not found
       }
       return new StramWebServicesInfo(appMasterUrl, version, appPath, user, secToken, permissionsInfo);
-    }
-    catch (Exception ex) {
-      LOG.debug("Caught exception when retrieving web service info for app " + appId, ex);
+    } catch (Exception ex) {
+      LOG.warn("Caught exception when retrieving web service info for app {}", appId, ex);
       return null;
     }
   }

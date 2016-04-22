@@ -1,17 +1,20 @@
 /**
- * Copyright (C) 2015 DataTorrent, Inc.
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *         http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package com.datatorrent.stram.webapp.asm;
 
@@ -37,20 +40,20 @@ public class CompactUtil
 
   public static CompactClassNode compactClassNode(ClassNode cn)
   {
-    if(cn == null){
+    if (cn == null) {
       return null;
     }
     CompactClassNode ccn = new CompactClassNode();
     ccn.setAccess(cn.access);
     ccn.setDefaultConstructor(compactMethodNode(ASMUtil.getPublicDefaultConstructor(cn)));
     
-    List<CompactMethodNode> cmns = new LinkedList<CompactMethodNode>();
+    List<CompactMethodNode> cmns = new LinkedList<>();
     for (MethodNode mn : ASMUtil.getPublicGetter(cn)) {
       cmns.add(compactMethodNode(mn));
     }
     ccn.setGetterMethods(cmns);
     
-    cmns = new LinkedList<CompactMethodNode>();
+    cmns = new LinkedList<>();
     for (MethodNode mn : ASMUtil.getPublicSetter(cn)) {
       cmns.add(compactMethodNode(mn));
     }
@@ -59,18 +62,18 @@ public class CompactUtil
     ccn.setPorts(new LinkedList<CompactFieldNode>());
     ccn.setName(cn.name);
     
-    List<CompactClassNode> ccns = new LinkedList<CompactClassNode>();
+    List<CompactClassNode> ccns = new LinkedList<>();
     for (Object icn : cn.innerClasses) {
       CompactClassNode inner = new CompactClassNode();
       inner.setName(((InnerClassNode)icn).name);
       inner.setAccess(((InnerClassNode)icn).access);
     }
     ccn.setInnerClasses(ccns);
-    if(ASMUtil.isEnum(cn)){
+    if (ASMUtil.isEnum(cn)) {
       ccn.setEnumValues(ASMUtil.getEnumValues(cn));
     }
-    
-    if(cn instanceof ClassNodeType){
+
+    if (cn instanceof ClassNodeType) {
       ccn.setCsv(((ClassNodeType)cn).csv);
     }
     
@@ -92,10 +95,9 @@ public class CompactUtil
 
   public static void updateCompactClassPortInfo(ClassNode cn, CompactClassNode ccn)
   {
-    List<FieldNode> fields =  ASMUtil.getPorts(cn);
-    List<CompactFieldNode> ports = new LinkedList<CompactFieldNode>();
-    for(FieldNode fn : fields)
-    {
+    List<FieldNode> fields = ASMUtil.getPorts(cn);
+    List<CompactFieldNode> ports = new LinkedList<>();
+    for (FieldNode fn : fields) {
       ports.add(compactFieldNode(fn));
     }
     ccn.setPorts(ports);
@@ -108,12 +110,14 @@ public class CompactUtil
     }
     CompactMethodNode cmn = new CompactMethodNode();
     cmn.setName(mn.name);
-    if(mn instanceof com.datatorrent.stram.webapp.asm.MethodNode)
-    cmn.setMethodSignatureNode(((com.datatorrent.stram.webapp.asm.MethodNode)mn).signatureNode);
+    if (mn instanceof com.datatorrent.stram.webapp.asm.MethodNode) {
+      cmn.setMethodSignatureNode(((com.datatorrent.stram.webapp.asm.MethodNode)mn).signatureNode);
+    }
     return cmn;
   }
 
-  private static CompactFieldNode compactFieldNode(FieldNode fn) {
+  private static CompactFieldNode compactFieldNode(FieldNode fn)
+  {
     if (fn == null) {
       return null;
     }
@@ -121,12 +125,10 @@ public class CompactUtil
     cfn.setName(fn.name);
 
     String className = org.apache.xbean.asm5.Type.getObjectType(fn.desc).getClassName();
-    if(className.charAt(0) == 'L')
-    {
+    if (className.charAt(0) == 'L') {
       className = className.substring(1);
     }
-    if(className.endsWith(";"))
-    {
+    if (className.endsWith(";")) {
       className = className.substring(0, className.length() - 1);
     }
     cfn.setDescription(className);
@@ -135,27 +137,33 @@ public class CompactUtil
     if (fn.visibleAnnotations != null) {
       setAnnotationNode(fn, cfn);
     }
-    if(fn instanceof com.datatorrent.stram.webapp.asm.FieldNode)
+    if (fn instanceof com.datatorrent.stram.webapp.asm.FieldNode) {
       cfn.setFieldSignatureNode((((com.datatorrent.stram.webapp.asm.FieldNode)fn).signatureNode));
+    }
     return cfn;
   }
 
-  private static void setAnnotationNode(FieldNode fn, CompactFieldNode cfn) {
-    List<CompactAnnotationNode> annotations = new LinkedList<CompactAnnotationNode>();
+  private static void setAnnotationNode(FieldNode fn, CompactFieldNode cfn)
+  {
+    List<CompactAnnotationNode> annotations = new LinkedList<>();
     for (Object visibleAnnotation : fn.visibleAnnotations) {
       CompactAnnotationNode node = new CompactAnnotationNode();
       Map<String, Object> annotationMap = new HashMap<String, Object>();
       if (visibleAnnotation instanceof AnnotationNode) {
-        AnnotationNode annotation = (AnnotationNode) visibleAnnotation;
+        AnnotationNode annotation = (AnnotationNode)visibleAnnotation;
         if (annotation.desc.contains("InputPortFieldAnnotation")
             || annotation.desc.contains("OutputPortFieldAnnotation")) {
           List<Object> annotationValues = annotation.values;
-          int index = 0;
-          while (index < annotationValues.size()) {
-            annotationMap.put((String) annotationValues.get(index++), annotationValues.get(index++));
+          if (annotationValues != null) {
+            int index = 0;
+            while (index <= annotationValues.size() - 2) {
+              String key = (String)annotationValues.get(index++);
+              Object value = annotationValues.get(index++);
+              annotationMap.put(key, value);
+            }
+            node.setAnnotations(annotationMap);
+            annotations.add(node);
           }
-          node.setAnnotations(annotationMap);
-          annotations.add(node);
         }
       }
       cfn.setVisibleAnnotations(annotations);

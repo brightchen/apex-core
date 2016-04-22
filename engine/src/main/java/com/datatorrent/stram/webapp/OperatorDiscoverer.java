@@ -1,60 +1,79 @@
 /**
- * Copyright (C) 2015 DataTorrent, Inc.
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *         http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package com.datatorrent.stram.webapp;
 
-import com.datatorrent.api.Operator;
-import com.datatorrent.netlet.util.DTThrowable;
-import com.datatorrent.stram.util.ObjectMapperFactory;
-import com.datatorrent.stram.webapp.TypeDiscoverer.UI_TYPE;
-import com.datatorrent.stram.webapp.TypeGraph.TypeGraphVertex;
-import com.datatorrent.stram.webapp.asm.CompactAnnotationNode;
-import com.datatorrent.stram.webapp.asm.CompactFieldNode;
-import com.google.common.base.Predicate;
-import com.google.common.base.Splitter;
-import com.google.common.collect.Iterables;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
-
-import java.beans.*;
+import java.beans.IntrospectionException;
+import java.beans.Introspector;
+import java.beans.PropertyDescriptor;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
-import java.lang.reflect.*;
-import java.net.*;
-import java.util.*;
+import java.lang.reflect.Method;
+import java.net.MalformedURLException;
+import java.net.URL;
+import java.net.URLClassLoader;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Set;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import javax.xml.parsers.*;
+import javax.xml.parsers.ParserConfigurationException;
+import javax.xml.parsers.SAXParserFactory;
 
-import org.apache.commons.collections.CollectionUtils;
-import org.apache.commons.lang.ClassUtils;
-import org.apache.commons.lang3.StringUtils;
-import org.apache.commons.lang3.text.WordUtils;
 import org.codehaus.jackson.map.ObjectMapper;
-import org.codehaus.jettison.json.*;
+import org.codehaus.jettison.json.JSONArray;
+import org.codehaus.jettison.json.JSONException;
+import org.codehaus.jettison.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.xml.sax.Attributes;
 import org.xml.sax.SAXException;
 import org.xml.sax.helpers.DefaultHandler;
+
+import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang.ClassUtils;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.text.WordUtils;
+
+import com.google.common.base.Predicate;
+import com.google.common.base.Splitter;
+import com.google.common.base.Throwables;
+import com.google.common.collect.Iterables;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
+
+import com.datatorrent.api.Operator;
+import com.datatorrent.stram.util.ObjectMapperFactory;
+import com.datatorrent.stram.webapp.TypeDiscoverer.UI_TYPE;
+import com.datatorrent.stram.webapp.TypeGraph.TypeGraphVertex;
+import com.datatorrent.stram.webapp.asm.CompactAnnotationNode;
+import com.datatorrent.stram.webapp.asm.CompactFieldNode;
 
 /**
  * <p>OperatorDiscoverer class.</p>
@@ -68,38 +87,64 @@ public class OperatorDiscoverer
   public static final String GENERATED_CLASSES_JAR = "_generated-classes.jar";
   private Set<String> operatorClassNames;
   private static final Logger LOG = LoggerFactory.getLogger(OperatorDiscoverer.class);
-  private final List<String> pathsToScan = new ArrayList<String>();
+  private final List<String> pathsToScan = new ArrayList<>();
   private final ClassLoader classLoader;
   private static final String DT_OPERATOR_DOCLINK_PREFIX = "https://www.datatorrent.com/docs/apidocs/index.html";
   public static final String PORT_TYPE_INFO_KEY = "portTypeInfo";
   private final TypeGraph typeGraph = TypeGraphFactory.createTypeGraphProtoType();
 
-  private static final String USE_SCHEMA_TAG = "@useSchema";
-  private static final String DESCRIPTION_TAG = "@description";
   private static final Pattern WHITESPACE_PATTERN = Pattern.compile("\\s+?");
 
   private static final String SCHEMA_REQUIRED_KEY = "schemaRequired";
 
-  private final Map<String, OperatorClassInfo> classInfo = new HashMap<String, OperatorClassInfo>();
+  private final Map<String, OperatorClassInfo> classInfo = new HashMap<>();
 
-  private static class OperatorClassInfo {
+  private static class OperatorClassInfo
+  {
     String comment;
-    final Map<String, String> tags = new HashMap<String, String>();
-    final Map<String, MethodInfo> getMethods = Maps.newHashMap();
-    final Map<String, MethodInfo> setMethods = Maps.newHashMap();
-    final Set<String> invisibleGetSetMethods = new HashSet<String>();
-    final Map<String, String> fields = new HashMap<String, String>();
+    final Map<String, String> tags = new HashMap<>();
+    final Map<String, MethodInfo> getMethods = new HashMap<>();
+    final Map<String, MethodInfo> setMethods = new HashMap<>();
+    final Map<String, String> fields = new HashMap<>();
   }
 
   private static class MethodInfo
   {
-    Map<String, String> descriptions = Maps.newHashMap();
-    Map<String, String> useSchemas = Maps.newHashMap();
+    Map<String, String> descriptions = new HashMap<>();
+    Map<String, String> useSchemas = new HashMap<>();
     String comment;
+    boolean omitFromUI;
   }
 
-  private class JavadocSAXHandler extends DefaultHandler {
+  enum MethodTagType
+  {
+    USE_SCHEMA("@useSchema"),
+    DESCRIPTION("@description"),
+    OMIT_FROM_UI("@omitFromUI");
 
+    private static final Map<String, MethodTagType> TAG_TEXT_MAPPING = Maps.newHashMap();
+
+    static {
+      for (MethodTagType type : MethodTagType.values()) {
+        TAG_TEXT_MAPPING.put(type.tag, type);
+      }
+    }
+
+    private final String tag;
+
+    MethodTagType(String tag)
+    {
+      this.tag = tag;
+    }
+
+    static MethodTagType from(String tag)
+    {
+      return TAG_TEXT_MAPPING.get(tag);
+    }
+  }
+
+  private class JavadocSAXHandler extends DefaultHandler
+  {
     private String className = null;
     private OperatorClassInfo oci = null;
     private StringBuilder comment;
@@ -125,11 +170,9 @@ public class OperatorDiscoverer
       if (qName.equalsIgnoreCase("class")) {
         className = attributes.getValue("qualified");
         oci = new OperatorClassInfo();
-      }
-      else if (qName.equalsIgnoreCase("comment")) {
+      } else if (qName.equalsIgnoreCase("comment")) {
         comment = new StringBuilder();
-      }
-      else if (qName.equalsIgnoreCase("tag")) {
+      } else if (qName.equalsIgnoreCase("tag")) {
         if (oci != null) {
           String tagName = attributes.getValue("name");
           String tagText = attributes.getValue("text").trim();
@@ -138,46 +181,43 @@ public class OperatorDiscoverer
             boolean lSetterCheck = !lGetterCheck && isSetter(methodName);
 
             if (lGetterCheck || lSetterCheck) {
-              if ("@omitFromUI".equals(tagName)) {
-                oci.invisibleGetSetMethods.add(methodName);
-              } else if (DESCRIPTION_TAG.equals(tagName)) {
-                addTagToMethod(lGetterCheck ? oci.getMethods : oci.setMethods, tagText, true);
-              } else if (USE_SCHEMA_TAG.equals(tagName)) {
-                addTagToMethod(lGetterCheck ? oci.getMethods : oci.setMethods, tagText, false);
+              MethodTagType type = MethodTagType.from(tagName);
+              if (type != null) {
+                addTagToMethod(lGetterCheck ? oci.getMethods : oci.setMethods, tagText, type);
               }
             }
 //            if ("@return".equals(tagName) && isGetter(methodName)) {
 //              oci.getMethods.put(methodName, tagText);
 //            }
             //do nothing
-          }
-          else if (fieldName != null) {
+          } else if (fieldName != null) {
             // do nothing
-          }
-          else {
+          } else {
             oci.tags.put(tagName, tagText);
           }
         }
-      }
-      else if (qName.equalsIgnoreCase("field")) {
+      } else if (qName.equalsIgnoreCase("field")) {
         fieldName = attributes.getValue("name");
-      }
-      else if (qName.equalsIgnoreCase("method")) {
+      } else if (qName.equalsIgnoreCase("method")) {
         methodName = attributes.getValue("name");
       }
     }
 
-    private void addTagToMethod(Map<String, MethodInfo> methods, String tagText, boolean isDescription)
+    private void addTagToMethod(Map<String, MethodInfo> methods, String tagText, MethodTagType tagType)
     {
       MethodInfo mi = methods.get(methodName);
       if (mi == null) {
         mi = new MethodInfo();
         methods.put(methodName, mi);
       }
-      String[] tagParts = Iterables.toArray(Splitter.on(WHITESPACE_PATTERN).trimResults().omitEmptyStrings().
-        limit(2).split(tagText), String.class);
+      if (tagType == MethodTagType.OMIT_FROM_UI) {
+        mi.omitFromUI = true;
+        return;
+      }
+      String[] tagParts = Iterables.toArray(Splitter.on(WHITESPACE_PATTERN).trimResults().omitEmptyStrings()
+          .limit(2).split(tagText), String.class);
       if (tagParts.length == 2) {
-        if (isDescription) {
+        if (tagType == MethodTagType.DESCRIPTION) {
           mi.descriptions.put(tagParts[0], tagParts[1]);
         } else {
           mi.useSchemas.put(tagParts[0], tagParts[1]);
@@ -186,13 +226,13 @@ public class OperatorDiscoverer
     }
 
     @Override
-    public void endElement(String uri, String localName, String qName) throws SAXException {
+    public void endElement(String uri, String localName, String qName) throws SAXException
+    {
       if (qName.equalsIgnoreCase("class")) {
         classInfo.put(className, oci);
         className = null;
         oci = null;
-      }
-      else if (qName.equalsIgnoreCase("comment") && oci != null) {
+      } else if (qName.equalsIgnoreCase("comment") && oci != null) {
         if (methodName != null) {
           // do nothing
           if (isGetter(methodName)) {
@@ -210,25 +250,22 @@ public class OperatorDiscoverer
             }
             mi.comment = comment.toString();
           }
-        }
-        else if (fieldName != null) {
+        } else if (fieldName != null) {
           oci.fields.put(fieldName, comment.toString());
-        }
-        else {
+        } else {
           oci.comment = comment.toString();
         }
         comment = null;
-      }
-      else if (qName.equalsIgnoreCase("field")) {
+      } else if (qName.equalsIgnoreCase("field")) {
         fieldName = null;
-      }
-      else if (qName.equalsIgnoreCase("method")) {
+      } else if (qName.equalsIgnoreCase("method")) {
         methodName = null;
       }
     }
 
     @Override
-    public void characters(char ch[], int start, int length) throws SAXException {
+    public void characters(char[] ch, int start, int length) throws SAXException
+    {
       if (comment != null) {
         comment.append(ch, start, length);
       }
@@ -247,8 +284,7 @@ public class OperatorDiscoverer
       pathsToScan.add(jars[i]);
       try {
         urls[i] = new URL("file://" + jars[i]);
-      }
-      catch (MalformedURLException ex) {
+      } catch (MalformedURLException ex) {
         throw new RuntimeException(ex);
       }
     }
@@ -265,7 +301,7 @@ public class OperatorDiscoverer
   public void addDefaultValue(String className, JSONObject oper) throws Exception
   {
     ObjectMapper defaultValueMapper = ObjectMapperFactory.getOperatorValueSerializer();
-    Class<? extends Operator> clazz = (Class<? extends Operator>) classLoader.loadClass(className);
+    Class<? extends Operator> clazz = (Class<? extends Operator>)classLoader.loadClass(className);
     if (clazz != null) {
       Operator operIns = clazz.newInstance();
       String s = defaultValueMapper.writeValueAsString(operIns);
@@ -275,8 +311,10 @@ public class OperatorDiscoverer
 
   public void buildTypeGraph()
   {
-    Map<String, JarFile> openJarFiles = new HashMap<String, JarFile>();
-    Map<String, File> openClassFiles = new HashMap<String, File>();
+    Map<String, JarFile> openJarFiles = new HashMap<>();
+    Map<String, File> openClassFiles = new HashMap<>();
+    // use global cache to load resource in/out of the same jar as the classes
+    Set<String> resourceCacheSet = new HashSet<>();
     try {
       for (String path : pathsToScan) {
         File f = null;
@@ -296,16 +334,44 @@ public class OperatorDiscoverer
             openJarFiles.put(path, jar);
             java.util.Enumeration<JarEntry> entriesEnum = jar.entries();
             while (entriesEnum.hasMoreElements()) {
-              java.util.jar.JarEntry jarEntry = entriesEnum.nextElement();
-              if (!jarEntry.isDirectory() && jarEntry.getName().endsWith("-javadoc.xml")) {
+              final java.util.jar.JarEntry jarEntry = entriesEnum.nextElement();
+              String entryName = jarEntry.getName();
+              if (jarEntry.isDirectory()) {
+                continue;
+              }
+              if (entryName.endsWith("-javadoc.xml")) {
                 try {
                   processJavadocXml(jar.getInputStream(jarEntry));
                   // break;
                 } catch (Exception ex) {
-                  LOG.warn("Cannot process javadoc {} : ", jarEntry.getName(), ex);
+                  LOG.warn("Cannot process javadoc {} : ", entryName, ex);
                 }
-              } else if (!jarEntry.isDirectory() && jarEntry.getName().endsWith(".class")) {
-                typeGraph.addNode(jarEntry, jar);
+              } else if (entryName.endsWith(".class")) {
+                TypeGraph.TypeGraphVertex newNode = typeGraph.addNode(jarEntry, jar);
+                // check if any visited resources belong to this type
+                for (Iterator<String> iter = resourceCacheSet.iterator(); iter.hasNext(); ) {
+                  String entry = iter.next();
+                  if (entry.startsWith(entryName.substring(0, entryName.length() - 6))) {
+                    newNode.setHasResource(true);
+                    iter.remove();
+                  }
+                }
+              } else {
+                String className = entryName;
+                boolean foundClass = false;
+                // check if this resource belongs to any visited type
+                while (className.contains("/")) {
+                  className = className.substring(0, className.lastIndexOf('/'));
+                  TypeGraph.TypeGraphVertex tgv = typeGraph.getNode(className.replace('/', '.'));
+                  if (tgv != null) {
+                    tgv.setHasResource(true);
+                    foundClass = true;
+                    break;
+                  }
+                }
+                if (!foundClass) {
+                  resourceCacheSet.add(entryName);
+                }
               }
             }
           }
@@ -316,14 +382,12 @@ public class OperatorDiscoverer
 
       typeGraph.trim();
 
-      typeGraph.updatePortTypeInfoInTypeGraph(openJarFiles, openClassFiles);
-    }
-   finally {
+    } finally {
       for (Entry<String, JarFile> entry : openJarFiles.entrySet()) {
         try {
           entry.getValue().close();
         } catch (IOException e) {
-          DTThrowable.wrapIfChecked(e);
+          throw Throwables.propagate(e);
         }
       }
     }
@@ -358,7 +422,7 @@ public class OperatorDiscoverer
       }
     });
 
-    if (searchTerm == null && parent == Operator.class.getName()) {
+    if (searchTerm == null && parent.equals(Operator.class.getName())) {
       return filteredClass;
     }
 
@@ -366,9 +430,9 @@ public class OperatorDiscoverer
       searchTerm = searchTerm.toLowerCase();
     }
 
-    Set<String> result = new HashSet<String>();
+    Set<String> result = new HashSet<>();
     for (String clazz : filteredClass) {
-      if (parent == Operator.class.getName() || typeGraph.isAncestor(parent, clazz)) {
+      if (parent.equals(Operator.class.getName()) || typeGraph.isAncestor(parent, clazz)) {
         if (searchTerm == null) {
           result.add(clazz);
         } else {
@@ -500,19 +564,16 @@ public class OperatorDiscoverer
           String doclink = oci.tags.get("@doclink");
           if (doclink != null) {
             response.put("doclink", doclink + "?" + getDocName(clazz));
-          }
-          else if (clazz.startsWith("com.datatorrent.lib.") ||
-                  clazz.startsWith("com.datatorrent.contrib.")) {
-            response.put("doclink", DT_OPERATOR_DOCLINK_PREFIX  + "?" + getDocName(clazz));
+          } else if (clazz.startsWith("com.datatorrent.lib.") ||
+              clazz.startsWith("com.datatorrent.contrib.")) {
+            response.put("doclink", DT_OPERATOR_DOCLINK_PREFIX + "?" + getDocName(clazz));
           }
         }
-      }
-      catch (JSONException ex) {
+      } catch (JSONException ex) {
         throw new RuntimeException(ex);
       }
       return response;
-    }
-    else {
+    } else {
       throw new UnsupportedOperationException();
     }
   }
@@ -561,17 +622,20 @@ public class OperatorDiscoverer
       String getPrefix = (propJ.getString("type").equals("boolean") || propJ.getString("type").equals("java.lang.Boolean")) ? "is" : "get";
       String setPrefix = "set";
       OperatorClassInfo oci = getOperatorClassWithGetterSetter(operatorClass, setPrefix + propName, getPrefix + propName);
-      if(oci == null) {
+      if (oci == null) {
         result.put(propJ);
         continue;
       }
-      if (oci.invisibleGetSetMethods.contains(getPrefix + propName) || oci.invisibleGetSetMethods.contains(setPrefix + propName)) {
+      MethodInfo setterInfo = oci.setMethods.get(setPrefix + propName);
+      MethodInfo getterInfo = oci.getMethods.get(getPrefix + propName);
+
+      if ((getterInfo != null && getterInfo.omitFromUI) || (setterInfo != null && setterInfo.omitFromUI)) {
         continue;
       }
-      MethodInfo methodInfo = oci.setMethods.get(setPrefix + propName);
-      methodInfo = methodInfo == null ? oci.getMethods.get(getPrefix + propName) : methodInfo;
-      if (methodInfo != null) {
-        addTagsToProperties(methodInfo, propJ);
+      if (setterInfo != null) {
+        addTagsToProperties(setterInfo, propJ);
+      } else if (getterInfo != null) {
+        addTagsToProperties(getterInfo, propJ);
       }
       result.put(propJ);
     }
@@ -653,7 +717,7 @@ public class OperatorDiscoverer
       desc.put("enum", enumNames);
     }
     UI_TYPE ui_type = UI_TYPE.getEnumFor(clazz);
-    if(ui_type!=null){
+    if (ui_type != null) {
       desc.put("uiType", ui_type.getName());
     }
     desc.put("properties", getClassProperties(clazz, 0));
@@ -689,38 +753,38 @@ public class OperatorDiscoverer
         }
         //LOG.info("name: " + pd.getName() + " type: " + pd.getPropertyType());
 
-          Class<?> propertyType = pd.getPropertyType();
-          if (propertyType != null) {
-            JSONObject propertyObj = new JSONObject();
-            propertyObj.put("name", pd.getName());
-            propertyObj.put("canGet", readMethod != null);
-            propertyObj.put("canSet", pd.getWriteMethod() != null);
-            if (readMethod != null) {
-              for (Class<?> c = clazz; c != null; c = c.getSuperclass()) {
-                OperatorClassInfo oci = classInfo.get(c.getName());
-                if (oci != null) {
-                  MethodInfo getMethodInfo = oci.getMethods.get(readMethod.getName());
-                  if (getMethodInfo != null) {
-                    addTagsToProperties(getMethodInfo, propertyObj);
-                    break;
-                  }
+        Class<?> propertyType = pd.getPropertyType();
+        if (propertyType != null) {
+          JSONObject propertyObj = new JSONObject();
+          propertyObj.put("name", pd.getName());
+          propertyObj.put("canGet", readMethod != null);
+          propertyObj.put("canSet", pd.getWriteMethod() != null);
+          if (readMethod != null) {
+            for (Class<?> c = clazz; c != null; c = c.getSuperclass()) {
+              OperatorClassInfo oci = classInfo.get(c.getName());
+              if (oci != null) {
+                MethodInfo getMethodInfo = oci.getMethods.get(readMethod.getName());
+                if (getMethodInfo != null) {
+                  addTagsToProperties(getMethodInfo, propertyObj);
+                  break;
                 }
               }
-              // type can be a type symbol or parameterized type
-              td.setTypeArguments(clazz, readMethod.getGenericReturnType(), propertyObj);
-            } else {
-              if (pd.getWriteMethod() != null) {
-                td.setTypeArguments(clazz, pd.getWriteMethod().getGenericParameterTypes()[0], propertyObj);
-              }
             }
-            //if (!propertyType.isPrimitive() && !propertyType.isEnum() && !propertyType.isArray() && !propertyType.getName().startsWith("java.lang") && level < MAX_PROPERTY_LEVELS) {
-            //  propertyObj.put("properties", getClassProperties(propertyType, level + 1));
-            //}
-            arr.put(propertyObj);
+            // type can be a type symbol or parameterized type
+            td.setTypeArguments(clazz, readMethod.getGenericReturnType(), propertyObj);
+          } else {
+            if (pd.getWriteMethod() != null) {
+              td.setTypeArguments(clazz, pd.getWriteMethod().getGenericParameterTypes()[0], propertyObj);
+            }
           }
+          //if (!propertyType.isPrimitive() && !propertyType.isEnum() && !propertyType.isArray() && !propertyType
+          // .getName().startsWith("java.lang") && level < MAX_PROPERTY_LEVELS) {
+          //  propertyObj.put("properties", getClassProperties(propertyType, level + 1));
+          //}
+          arr.put(propertyObj);
+        }
       }
-    }
-    catch (JSONException ex) {
+    } catch (JSONException ex) {
       throw new RuntimeException(ex);
     }
     return arr;
@@ -735,8 +799,7 @@ public class OperatorDiscoverer
     while (match.find()) {
       if (deCameled.length() == 0) {
         deCameled.append(match.group());
-      }
-      else {
+      } else {
         deCameled.append(" ");
         deCameled.append(match.group().toLowerCase());
       }
@@ -772,7 +835,7 @@ public class OperatorDiscoverer
 
         try {
           //building port class hierarchy
-          LinkedList<String> queue = Lists.newLinkedList();
+          LinkedList<String> queue = new LinkedList<>();
           queue.add(portType);
           while (!queue.isEmpty()) {
             String currentType = queue.remove();
@@ -782,7 +845,7 @@ public class OperatorDiscoverer
             }
             List<String> immediateParents = typeGraph.getParents(currentType);
             if (immediateParents == null) {
-              portClassHierarchy.put(currentType, Lists.<String>newArrayList());
+              portClassHierarchy.put(currentType, new ArrayList<String>());
               continue;
             }
             portClassHierarchy.put(currentType, immediateParents);
@@ -798,8 +861,8 @@ public class OperatorDiscoverer
           continue;
         }
         if (portType.equals("byte") || portType.equals("short") || portType.equals("char") || portType.equals("int")
-          || portType.equals("long") || portType.equals("float") || portType.equals("double")
-          || portType.equals("java.lang.String") || portType.equals("java.lang.Object")) {
+            || portType.equals("long") || portType.equals("float") || portType.equals("double")
+            || portType.equals("java.lang.String") || portType.equals("java.lang.Object")) {
           //ignoring primitives, strings and object types as this information is needed only for complex types.
           continue;
         }
@@ -832,7 +895,7 @@ public class OperatorDiscoverer
 
   public JSONArray getDescendants(String fullClassName)
   {
-    if(typeGraph.size()==0){
+    if (typeGraph.size() == 0) {
       buildTypeGraph();
     }
     return new JSONArray(typeGraph.getDescendants(fullClassName));

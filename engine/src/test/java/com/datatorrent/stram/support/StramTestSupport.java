@@ -1,17 +1,20 @@
 /**
- * Copyright (C) 2015 DataTorrent, Inc.
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *         http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package com.datatorrent.stram.support;
 
@@ -19,16 +22,28 @@ import java.io.File;
 import java.io.IOException;
 import java.io.Serializable;
 import java.lang.reflect.Field;
+import java.net.URI;
+import java.nio.file.FileAlreadyExistsException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+
 import javax.servlet.http.HttpServletRequest;
 
-import net.lingala.zip4j.core.ZipFile;
-import net.lingala.zip4j.model.ZipParameters;
-import org.apache.commons.io.FileUtils;
+import org.codehaus.plexus.DefaultPlexusContainer;
+import org.codehaus.plexus.PlexusContainer;
+import org.codehaus.plexus.logging.BaseLoggerManager;
+import org.eclipse.jetty.server.Connector;
+import org.eclipse.jetty.server.Server;
+import org.eclipse.jetty.server.nio.SelectChannelConnector;
+import org.eclipse.jetty.servlet.ServletContextHandler;
+import org.eclipse.jetty.servlet.ServletHolder;
+import org.eclipse.jetty.websocket.WebSocket;
+import org.eclipse.jetty.websocket.WebSocketServlet;
 import org.hamcrest.BaseMatcher;
 import org.hamcrest.Description;
 import org.junit.Assert;
@@ -36,9 +51,15 @@ import org.junit.rules.TestWatcher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.commons.io.FileUtils;
+import org.apache.hadoop.yarn.api.records.ApplicationAttemptId;
+import org.apache.hadoop.yarn.api.records.ApplicationId;
+import org.apache.hadoop.yarn.util.Clock;
+import org.apache.maven.cli.MavenCli;
+import org.apache.maven.cli.logging.Slf4jLogger;
+
 import com.datatorrent.api.Attribute;
 import com.datatorrent.api.StorageAgent;
-
 import com.datatorrent.bufferserver.packet.MessageType;
 import com.datatorrent.stram.StramAppContext;
 import com.datatorrent.stram.StramLocalCluster;
@@ -47,29 +68,39 @@ import com.datatorrent.stram.api.AppDataSource;
 import com.datatorrent.stram.api.BaseContext;
 import com.datatorrent.stram.engine.OperatorContext;
 import com.datatorrent.stram.engine.WindowGenerator;
+import com.datatorrent.stram.plan.logical.LogicalPlan;
 import com.datatorrent.stram.plan.physical.PTOperator;
 import com.datatorrent.stram.tuple.EndWindowTuple;
 import com.datatorrent.stram.tuple.Tuple;
 import com.datatorrent.stram.webapp.AppInfo;
-import org.apache.commons.io.IOUtils;
 
-import org.apache.hadoop.yarn.api.records.ApplicationAttemptId;
-import org.apache.hadoop.yarn.api.records.ApplicationId;
-import org.apache.hadoop.yarn.util.Clock;
-import org.eclipse.jetty.server.Connector;
-import org.eclipse.jetty.server.Server;
-import org.eclipse.jetty.server.nio.SelectChannelConnector;
-import org.eclipse.jetty.servlet.ServletContextHandler;
-import org.eclipse.jetty.servlet.ServletHolder;
-import org.eclipse.jetty.websocket.WebSocket;
-import org.eclipse.jetty.websocket.WebSocketServlet;
+import net.lingala.zip4j.core.ZipFile;
+import net.lingala.zip4j.model.ZipParameters;
 
 /**
  * Bunch of utilities shared between tests.
  */
-abstract public class StramTestSupport
+public abstract class StramTestSupport
 {
   private static final Logger LOG = LoggerFactory.getLogger(StramTestSupport.class);
+  private static MavenCli mavenCli = new MavenCli()
+  {
+    @Override
+    protected void customizeContainer(PlexusContainer container)
+    {
+      ((DefaultPlexusContainer)container).setLoggerManager(
+          new BaseLoggerManager()
+          {
+            @Override
+            protected org.codehaus.plexus.logging.Logger createLogger(String s)
+            {
+              return new Slf4jLogger(LOG);
+            }
+          }
+      );
+    }
+  };
+  private static final String workingDirectory = "src/test/resources/testAppPackage/mydtapp/";
   public static final long DEFAULT_TIMEOUT_MILLIS = 30000;
 
   public static Object generateTuple(Object payload, int windowId)
@@ -91,9 +122,8 @@ abstract public class StramTestSupport
 
   public static void checkStringMatch(String print, String expected, String got)
   {
-    Assert.assertTrue(
-            print + " doesn't match, got: " + got + " expected: " + expected,
-            got.matches(expected));
+    Assert.assertTrue(print + " doesn't match, got: " + got + " expected: " + expected,
+        got.matches(expected));
   }
 
   public static WindowGenerator setupWindowGenerator(ManualScheduledExecutorService mses)
@@ -122,37 +152,18 @@ abstract public class StramTestSupport
   /**
    * Create an appPackage zip using the sample appPackage located in
    * src/test/resources/testAppPackage/testAppPackageSrc.
-   * @param file  The file whose path will be used to create the appPackage zip
    * @return      The File object that can be used in the AppPackage constructor.
-   * @throws net.lingala.zip4j.exception.ZipException
    */
   public static File createAppPackageFile()
   {
-    String appPackageDir = "src/test/resources/testAppPackage/mydtapp";
-    String command = "mvn clean package -DskipTests";
-    try {
-      Process p = Runtime.getRuntime().exec(command, null, new File(appPackageDir));
-      IOUtils.copy(p.getInputStream(), System.out);
-      IOUtils.copy(p.getErrorStream(), System.err);
-      Assert.assertEquals(0, p.waitFor());
-    } catch (Exception ex) {
-      throw new RuntimeException(ex);
-    }
-    return new File(appPackageDir, "target/mydtapp-1.0-SNAPSHOT.apa");
+    Assert.assertEquals(0, mavenCli.doMain(new String[] {"clean", "package", "-DskipTests"},
+        workingDirectory, System.out, System.err));
+    return new File(workingDirectory, "target/mydtapp-1.0-SNAPSHOT.apa");
   }
 
   public static void removeAppPackageFile()
   {
-    String appPackageDir = "src/test/resources/testAppPackage/mydtapp";
-    String command = "mvn clean";
-    try {
-      Process p = Runtime.getRuntime().exec(command, null, new File(appPackageDir));
-      IOUtils.copy(p.getInputStream(), System.out);
-      IOUtils.copy(p.getErrorStream(), System.err);
-      Assert.assertEquals(0, p.waitFor());
-    } catch (Exception ex) {
-      throw new RuntimeException(ex);
-    }
+    Assert.assertEquals(0, mavenCli.doMain(new String[]{"clean"}, workingDirectory, System.out, System.err));
   }
 
   /**
@@ -250,23 +261,54 @@ abstract public class StramTestSupport
 
   public static class TestMeta extends TestWatcher
   {
-    public String dir = null;
+    private File dir;
 
     @Override
     protected void starting(org.junit.runner.Description description)
     {
-      String methodName = description.getMethodName();
-      String className = description.getClassName();
-      //className = className.substring(className.lastIndexOf('.') + 1);
-      this.dir = "target/" + className + "/" + methodName;
-      new File(this.dir).mkdirs();
+      final String methodName = description.getMethodName();
+      final String className = description.getClassName();
+      dir = new File("target/" + className + "/" + methodName);
+      try {
+        Files.createDirectories(dir.toPath());
+      } catch (FileAlreadyExistsException e) {
+        try {
+          Files.delete(dir.toPath());
+          Files.createDirectories(dir.toPath());
+        } catch (IOException ioe) {
+          throw new RuntimeException("Fail to create test working directory " + dir.getAbsolutePath(), e);
+        }
+      } catch (IOException e) {
+        throw new RuntimeException("Fail to create test working directory " + dir.getAbsolutePath(), e);
+      }
     }
 
     @Override
     protected void finished(org.junit.runner.Description description)
     {
-      FileUtils.deleteQuietly(new File(this.dir));
+      FileUtils.deleteQuietly(dir);
     }
+
+    public String getPath()
+    {
+      return dir.getPath();
+    }
+
+    public String getAbsolutePath()
+    {
+      return dir.getAbsolutePath();
+    }
+
+    public Path toPath()
+    {
+      return dir.toPath();
+    }
+
+    public URI toURI()
+    {
+      return dir.toURI();
+    }
+
   }
 
   public static class TestHomeDirectory extends TestWatcher
@@ -330,6 +372,20 @@ abstract public class StramTestSupport
     }
   }
 
+  public static LogicalPlan createDAG(final TestMeta testMeta, final String suffix)
+  {
+    if (suffix == null) {
+      throw new NullPointerException();
+    }
+    LogicalPlan dag = new LogicalPlan();
+    dag.setAttribute(LogicalPlan.APPLICATION_PATH, testMeta.getPath() + suffix);
+    return dag;
+  }
+
+  public static LogicalPlan createDAG(final TestMeta testMeta)
+  {
+    return createDAG(testMeta, "");
+  }
 
   public static class MemoryStorageAgent implements StorageAgent, Serializable
   {
@@ -426,16 +482,16 @@ abstract public class StramTestSupport
     final long startTime = System.currentTimeMillis();
     final String gatewayAddress = "localhost:9090";
 
-    public TestAppContext(int appid, int numJobs, int numTasks, int numAttempts)
+    public TestAppContext(Attribute.AttributeMap attributeMap, int appid, int numJobs, int numTasks, int numAttempts)
     {
-      super(new Attribute.AttributeMap.DefaultAttributeMap(), null); // this needs to be done in a proper way - may cause application errors.
+      super(attributeMap, null); // this needs to be done in a proper way - may cause application errors.
       this.appID = ApplicationId.newInstance(0, appid);
       this.appAttemptID = ApplicationAttemptId.newInstance(this.appID, numAttempts);
     }
 
-    public TestAppContext()
+    public TestAppContext(Attribute.AttributeMap attributeMap)
     {
-      this(0, 1, 1, 1);
+      this(attributeMap, 0, 1, 1, 1);
     }
 
     @Override
@@ -533,7 +589,7 @@ abstract public class StramTestSupport
 
     private final Logger LOG = LoggerFactory.getLogger(EmbeddedWebSocketServer.class);
 
-    private final int port;
+    private int port;
     private Server server;
     private WebSocket websocket;
 
@@ -570,6 +626,14 @@ abstract public class StramTestSupport
 
       contextHandler.addServlet(new ServletHolder(webSocketServlet), "/pubsub");
       server.start();
+      if (port == 0) {
+        port = server.getConnectors()[0].getLocalPort();
+      }
+    }
+
+    public int getPort()
+    {
+      return port;
     }
 
     public void stop() throws Exception

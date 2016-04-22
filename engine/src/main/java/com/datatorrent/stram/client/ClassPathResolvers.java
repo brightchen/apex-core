@@ -1,17 +1,20 @@
 /**
- * Copyright (C) 2015 DataTorrent, Inc.
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *         http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package com.datatorrent.stram.client;
 
@@ -31,12 +34,13 @@ import java.util.jar.Attributes;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang.NotImplementedException;
 import org.apache.commons.lang.StringUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * <p>ClassPathResolvers class.</p>
@@ -65,7 +69,7 @@ public class ClassPathResolvers
     final JarFile jarFile;
     final StringWriter consoleOutput;
     JarEntry pomEntry;
-    LinkedHashSet<URL> urls = new LinkedHashSet<URL>();
+    LinkedHashSet<URL> urls = new LinkedHashSet<>();
   }
 
   interface Resolver
@@ -86,9 +90,10 @@ public class ClassPathResolvers
   {
     private static final Logger LOG = LoggerFactory.getLogger(ManifestResolver.class);
     public static final Attributes.Name ATTR_NAME = Attributes.Name.CLASS_PATH;
-    final public File baseDir;
+    public final File baseDir;
 
-    public ManifestResolver(File baseDir) {
+    public ManifestResolver(File baseDir)
+    {
       this.baseDir = baseDir;
     }
 
@@ -98,7 +103,7 @@ public class ClassPathResolvers
       String jarClasspath = jfc.jarFile.getManifest().getMainAttributes().getValue(Attributes.Name.CLASS_PATH);
       if (jarClasspath != null) {
         LOG.debug("Using manifest attribute {} to resolve dependencies", Attributes.Name.CLASS_PATH);
-        String jars[] = jarClasspath.split(" ");
+        String[] jars = jarClasspath.split(" ");
         for (String jar : jars) {
           File f = new File(baseDir, jar);
           if (f.exists()) {
@@ -131,17 +136,11 @@ public class ClassPathResolvers
       // read crc and classpath file, if it exists
       // (we won't run mvn again if pom didn't change)
       if (cpFile.exists()) {
-        DataInputStream dis = null;
-        try {
-          dis = new DataInputStream(new FileInputStream(pomCrcFile));
+        try (DataInputStream dis = new DataInputStream(new FileInputStream(pomCrcFile))) {
           pomCrc = dis.readLong();
           cp = FileUtils.readFileToString(cpFile, "UTF-8");
-        }
-        catch (Exception e) {
+        } catch (Exception e) {
           LOG.error("Cannot read CRC from {}", pomCrcFile);
-        }
-        finally {
-          IOUtils.closeQuietly(dis);
         }
       }
 
@@ -165,12 +164,8 @@ public class ClassPathResolvers
           cp = generateClassPathFromPom(pomFile, cpFile, jfc);
         }
         if (cp != null) {
-          DataOutputStream dos = new DataOutputStream(new FileOutputStream(pomCrcFile));
-          try {
+          try (DataOutputStream dos = new DataOutputStream(new FileOutputStream(pomCrcFile))) {
             dos.writeLong(pomCrc);
-          }
-          finally {
-            dos.close();
           }
           // wasn't the path already written to the file by mvn?
           FileUtils.writeStringToFile(cpFile, cp, false);
@@ -188,13 +183,7 @@ public class ClassPathResolvers
       LOG.info("Generating classpath via mvn from " + pomFile);
       LOG.info("java.home: " + System.getProperty("java.home"));
 
-      String dt_home;
-      if (!StringUtils.isEmpty(userHome)) {
-        dt_home = " -Duser.home=" + userHome;
-      }
-      else {
-        dt_home = "";
-      }
+      String dt_home = StringUtils.isEmpty(userHome) ? "" : (" -Duser.home=" + userHome);
       String cmd = "mvn dependency:build-classpath" + dt_home + " -q -Dmdep.outputFile=" + cpFile.getAbsolutePath() + " -f " + pomFile;
       LOG.debug("Executing: {}", cmd);
       Process p = Runtime.getRuntime().exec(new String[] {"bash", "-c", cmd});
@@ -241,6 +230,7 @@ public class ClassPathResolvers
         try {
           rc = p.waitFor();
         } catch (Exception e) {
+          // ignore
         }
         finished = true;
       }
@@ -256,7 +246,7 @@ public class ClassPathResolvers
   public List<Resolver> createResolvers(String resolverConfig)
   {
     String[] specs = resolverConfig.split(",");
-    List<Resolver> resolvers = new ArrayList<Resolver>(specs.length);
+    List<Resolver> resolvers = new ArrayList<>(specs.length);
     for (String s : specs) {
       s = s.trim();
       String[] comps = s.split(":");

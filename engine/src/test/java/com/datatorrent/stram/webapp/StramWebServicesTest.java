@@ -1,17 +1,20 @@
 /**
- * Copyright (C) 2015 DataTorrent, Inc.
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *         http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package com.datatorrent.stram.webapp;
 
@@ -29,6 +32,22 @@ import javax.ws.rs.core.MediaType;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 
+import org.codehaus.jackson.map.ObjectMapper;
+import org.codehaus.jettison.json.JSONException;
+import org.codehaus.jettison.json.JSONObject;
+import org.junit.Assert;
+import org.junit.Before;
+import org.junit.Ignore;
+import org.junit.Test;
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.Node;
+import org.w3c.dom.NodeList;
+import org.xml.sax.InputSource;
+
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.yarn.webapp.GenericExceptionHandler;
+
 import com.google.inject.Guice;
 import com.google.inject.Injector;
 import com.google.inject.servlet.ServletModule;
@@ -40,23 +59,8 @@ import com.sun.jersey.guice.spi.container.servlet.GuiceContainer;
 import com.sun.jersey.test.framework.JerseyTest;
 import com.sun.jersey.test.framework.WebAppDescriptor;
 
-import org.codehaus.jackson.map.ObjectMapper;
-import org.codehaus.jettison.json.JSONException;
-import org.codehaus.jettison.json.JSONObject;
-import org.junit.Before;
-import org.junit.Ignore;
-import org.junit.Test;
-import org.w3c.dom.Document;
-import org.w3c.dom.Element;
-import org.w3c.dom.Node;
-import org.w3c.dom.NodeList;
-import org.xml.sax.InputSource;
-import static org.junit.Assert.*;
-
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.yarn.webapp.GenericExceptionHandler;
-
 import com.datatorrent.api.Context;
+import com.datatorrent.common.metric.AutoMetricBuiltInTransport;
 import com.datatorrent.common.util.AsyncFSStorageAgent;
 import com.datatorrent.stram.StramAppContext;
 import com.datatorrent.stram.StreamingContainerManager;
@@ -68,6 +72,10 @@ import com.datatorrent.stram.support.StramTestSupport;
 import com.datatorrent.stram.support.StramTestSupport.TestAppContext;
 import com.datatorrent.stram.webapp.StramWebApp.JAXBContextResolver;
 import com.datatorrent.stram.webapp.StramWebServicesTest.GuiceServletConfig.DummyStreamingContainerManager;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 /**
  * Test the application master web services api's.
@@ -129,10 +137,11 @@ public class StramWebServicesTest extends JerseyTest
         LogicalPlan dag = new LogicalPlan();
         String workingDir = new File("target", StramWebServicesTest.class.getName()).getAbsolutePath();
         dag.setAttribute(LogicalPlan.APPLICATION_PATH, workingDir);
-        dag.setAttribute(Context.OperatorContext.STORAGE_AGENT, new AsyncFSStorageAgent(workingDir + "/localPath", workingDir, null));
+        dag.setAttribute(Context.OperatorContext.STORAGE_AGENT, new AsyncFSStorageAgent(workingDir, null));
+        dag.setAttribute(LogicalPlan.METRICS_TRANSPORT, new AutoMetricBuiltInTransport("xyz"));
         final DummyStreamingContainerManager streamingContainerManager = new DummyStreamingContainerManager(dag);
 
-        appContext = new TestAppContext();
+        appContext = new TestAppContext(dag.getAttributes());
         bind(JAXBContextResolver.class);
         bind(StramWebServices.class);
         bind(GenericExceptionHandler.class);
@@ -162,10 +171,10 @@ public class StramWebServicesTest extends JerseyTest
   public StramWebServicesTest()
   {
     super(new WebAppDescriptor.Builder(
-            StramWebServicesTest.class.getPackage().getName())
-            .contextListenerClass(GuiceServletConfig.class)
-            .filterClass(com.google.inject.servlet.GuiceFilter.class)
-            .contextPath("jersey-guice-filter").servletPath("/").build());
+        StramWebServicesTest.class.getPackage().getName())
+        .contextListenerClass(GuiceServletConfig.class)
+        .filterClass(com.google.inject.servlet.GuiceFilter.class)
+        .contextPath("jersey-guice-filter").servletPath("/").build());
   }
 
   @Test
@@ -173,7 +182,7 @@ public class StramWebServicesTest extends JerseyTest
   {
     WebResource r = resource();
     ClientResponse response = r.path(StramWebServices.PATH)
-            .accept(MediaType.APPLICATION_JSON).get(ClientResponse.class);
+        .accept(MediaType.APPLICATION_JSON).get(ClientResponse.class);
     assertEquals(MediaType.APPLICATION_JSON_TYPE, response.getType());
     JSONObject json = response.getEntity(JSONObject.class);
     assertTrue("Too few elements", json.length() > 1);
@@ -185,7 +194,7 @@ public class StramWebServicesTest extends JerseyTest
   {
     WebResource r = resource();
     ClientResponse response = r.path(StramWebServices.PATH + "/")
-            .accept(MediaType.APPLICATION_JSON).get(ClientResponse.class);
+        .accept(MediaType.APPLICATION_JSON).get(ClientResponse.class);
     assertEquals(MediaType.APPLICATION_JSON_TYPE, response.getType());
     JSONObject json = response.getEntity(JSONObject.class);
     assertTrue("Too few elements", json.length() > 1);
@@ -197,7 +206,7 @@ public class StramWebServicesTest extends JerseyTest
   {
     WebResource r = resource();
     ClientResponse response = r.path(StramWebServices.PATH + "/")
-            .get(ClientResponse.class);
+        .get(ClientResponse.class);
     assertEquals(MediaType.APPLICATION_JSON_TYPE, response.getType());
     JSONObject json = response.getEntity(JSONObject.class);
     assertTrue("Too few elements", json.length() > 1);
@@ -210,7 +219,7 @@ public class StramWebServicesTest extends JerseyTest
   {
     WebResource r = resource();
     ClientResponse response = r.path(StramWebServices.PATH)
-            .accept(MediaType.APPLICATION_XML).get(ClientResponse.class);
+        .accept(MediaType.APPLICATION_XML).get(ClientResponse.class);
     assertEquals(MediaType.APPLICATION_XML_TYPE, response.getType());
     String xml = response.getEntity(String.class);
     verifyAMInfoXML(xml, appContext);
@@ -221,8 +230,8 @@ public class StramWebServicesTest extends JerseyTest
   {
     WebResource r = resource();
     ClientResponse response = r.path(StramWebServices.PATH)
-            .path(StramWebServices.PATH_INFO).accept(MediaType.APPLICATION_JSON)
-            .get(ClientResponse.class);
+        .path(StramWebServices.PATH_INFO).accept(MediaType.APPLICATION_JSON)
+        .get(ClientResponse.class);
     assertEquals(MediaType.APPLICATION_JSON_TYPE, response.getType());
     JSONObject json = response.getEntity(JSONObject.class);
     assertTrue("Too few elements", json.length() > 1);
@@ -234,8 +243,8 @@ public class StramWebServicesTest extends JerseyTest
   {
     WebResource r = resource();
     ClientResponse response = r.path(StramWebServices.PATH)
-            .path(StramWebServices.PATH_INFO + "/").accept(MediaType.APPLICATION_JSON)
-            .get(ClientResponse.class);
+        .path(StramWebServices.PATH_INFO + "/").accept(MediaType.APPLICATION_JSON)
+        .get(ClientResponse.class);
     assertEquals(MediaType.APPLICATION_JSON_TYPE, response.getType());
     JSONObject json = response.getEntity(JSONObject.class);
     assertTrue("Too few elements", json.length() > 1);
@@ -247,7 +256,7 @@ public class StramWebServicesTest extends JerseyTest
   {
     WebResource r = resource();
     ClientResponse response = r.path(StramWebServices.PATH)
-            .path(StramWebServices.PATH_INFO + "/").get(ClientResponse.class);
+        .path(StramWebServices.PATH_INFO + "/").get(ClientResponse.class);
     assertEquals(MediaType.APPLICATION_JSON_TYPE, response.getType());
     JSONObject json = response.getEntity(JSONObject.class);
     assertTrue("Too few elements", json.length() > 1);
@@ -260,8 +269,8 @@ public class StramWebServicesTest extends JerseyTest
   {
     WebResource r = resource();
     ClientResponse response = r.path(StramWebServices.PATH)
-            .path(StramWebServices.PATH_INFO + "/").accept(MediaType.APPLICATION_XML)
-            .get(ClientResponse.class);
+        .path(StramWebServices.PATH_INFO + "/").accept(MediaType.APPLICATION_XML)
+        .get(ClientResponse.class);
     assertEquals(MediaType.APPLICATION_XML_TYPE, response.getType());
     String xml = response.getEntity(String.class);
     verifyAMInfoXML(xml, appContext);
@@ -275,14 +284,13 @@ public class StramWebServicesTest extends JerseyTest
     String responseStr = "";
     try {
       responseStr = r.path(StramWebServices.PATH).path("bogus")
-              .accept(MediaType.APPLICATION_JSON).get(String.class);
+          .accept(MediaType.APPLICATION_JSON).get(String.class);
       fail("should have thrown exception on invalid uri");
-    }
-    catch (UniformInterfaceException ue) {
+    } catch (UniformInterfaceException ue) {
       ClientResponse response = ue.getResponse();
       assertEquals(Status.NOT_FOUND, response.getClientResponseStatus());
       StramTestSupport.checkStringMatch(
-              "error string exists and shouldn't", "", responseStr);
+          "error string exists and shouldn't", "", responseStr);
     }
   }
 
@@ -294,14 +302,13 @@ public class StramWebServicesTest extends JerseyTest
     String responseStr = "";
     try {
       responseStr = r.path("ws").path("v2").path("invalid")
-              .accept(MediaType.APPLICATION_JSON).get(String.class);
+          .accept(MediaType.APPLICATION_JSON).get(String.class);
       fail("should have thrown exception on invalid uri");
-    }
-    catch (UniformInterfaceException ue) {
+    } catch (UniformInterfaceException ue) {
       ClientResponse response = ue.getResponse();
       assertEquals(Status.NOT_FOUND, response.getClientResponseStatus());
       StramTestSupport.checkStringMatch(
-              "error string exists and shouldn't", "", responseStr);
+          "error string exists and shouldn't", "", responseStr);
     }
   }
 
@@ -317,16 +324,28 @@ public class StramWebServicesTest extends JerseyTest
     String responseStr = "";
     try {
       responseStr = r.path(StramWebServices.PATH)
-              .accept(MediaType.TEXT_PLAIN).get(String.class);
+          .accept(MediaType.TEXT_PLAIN).get(String.class);
       fail("should have thrown exception on invalid accept");
-    }
-    catch (UniformInterfaceException ue) {
+    } catch (UniformInterfaceException ue) {
       ClientResponse response = ue.getResponse();
       assertEquals(Status.INTERNAL_SERVER_ERROR,
-                   response.getClientResponseStatus());
+          response.getClientResponseStatus());
       StramTestSupport.checkStringMatch(
-              "error string exists and shouldn't", "", responseStr);
+          "error string exists and shouldn't", "", responseStr);
     }
+  }
+
+  @Test
+  public void testAttributes() throws Exception
+  {
+    WebResource r = resource();
+    ClientResponse response = r.path(StramWebServices.PATH + "/")
+        .accept(MediaType.APPLICATION_JSON).get(ClientResponse.class);
+    assertEquals(MediaType.APPLICATION_JSON_TYPE, response.getType());
+    JSONObject json = response.getEntity(JSONObject.class);
+    JSONObject attrs = json.getJSONObject("attributes");
+    Assert.assertEquals(AutoMetricBuiltInTransport.class.getName() + ":xyz",
+        attrs.getString(Context.DAGContext.METRICS_TRANSPORT.getSimpleName()));
   }
 
   @Test
@@ -370,7 +389,7 @@ public class StramWebServicesTest extends JerseyTest
   }
 
   void verifyAMInfo(JSONObject info, TestAppContext ctx)
-          throws JSONException
+      throws JSONException
   {
     assertTrue("Too few elements", info.length() > 10);
 
@@ -380,7 +399,7 @@ public class StramWebServicesTest extends JerseyTest
   }
 
   void verifyAMInfoXML(String xml, TestAppContext ctx)
-          throws JSONException, Exception
+      throws JSONException, Exception
   {
     DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
     DocumentBuilder db = dbf.newDocumentBuilder();
@@ -402,14 +421,15 @@ public class StramWebServicesTest extends JerseyTest
   }
 
   void verifyAMInfoGeneric(TestAppContext ctx, String id, String user,
-      String name, long startTime, long elapsedTime) {
+      String name, long startTime, long elapsedTime)
+  {
 
     StramTestSupport.checkStringMatch("id", ctx.getApplicationID()
-            .toString(), id);
+        .toString(), id);
     StramTestSupport.checkStringMatch("user", ctx.getUser().toString(),
-                                      user);
+        user);
     StramTestSupport.checkStringMatch("name", ctx.getApplicationName(),
-                                      name);
+        name);
 
     assertEquals("startTime incorrect", ctx.getStartTime(), startTime);
     assertTrue("elapsedTime not greater then 0", (elapsedTime > 0));

@@ -1,17 +1,20 @@
 /**
- * Copyright (C) 2015 DataTorrent, Inc.
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *         http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package com.datatorrent.common.util;
 
@@ -33,11 +36,13 @@ public class PubSubMessageCodec<T>
 
   private final ObjectMapper mapper;
 
-  public PubSubMessageCodec(ObjectMapper mapper) {
+  public PubSubMessageCodec(ObjectMapper mapper)
+  {
     this.mapper = mapper;
   }
 
-  public String formatMessage(PubSubMessage<T> pubSubMessage) throws IOException {
+  public String formatMessage(PubSubMessage<T> pubSubMessage) throws IOException
+  {
     HashMap<String, Object> map = new HashMap<String, Object>();
     map.put(PubSubMessage.TYPE_KEY, pubSubMessage.getType().getIdentifier());
     map.put(PubSubMessage.TOPIC_KEY, pubSubMessage.getTopic());
@@ -56,7 +61,8 @@ public class PubSubMessageCodec<T>
    * @throws IOException
    */
   @SuppressWarnings({"unchecked"})
-  public PubSubMessage<T> parseMessage(String message) throws IOException {
+  public PubSubMessage<T> parseMessage(String message) throws IOException
+  {
     HashMap<String, Object> map = mapper.readValue(message, HashMap.class);
     PubSubMessage<T> pubSubMessage = new PubSubMessage<T>();
     pubSubMessage.setType(PubSubMessageType.getPubSubMessageType((String)map.get(PubSubMessage.TYPE_KEY)));

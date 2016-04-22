@@ -1,17 +1,20 @@
 /**
- * Copyright (C) 2015 DataTorrent, Inc.
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *         http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package com.datatorrent.common.metric;
 
@@ -95,8 +98,7 @@ public class MetricsAggregator implements AutoMetric.Aggregator, Serializable
     String aggregatorDesc;
     if (aggregatorName == null) {
       aggregatorDesc = aggregator.getClass().getName();
-    }
-    else {
+    } else {
       aggregatorDesc = aggregatorName.value();
     }
     return aggregatorDesc + aggregatorMetricSeparator + metric;
@@ -126,13 +128,13 @@ public class MetricsAggregator implements AutoMetric.Aggregator, Serializable
    *                           be used for the result of aggregators[i].
    */
   public void addAggregators(@NotNull String metric, @NotNull SingleMetricAggregator[] aggregators,
-                             @NotNull String[] logicalMetricNames)
+      @NotNull String[] logicalMetricNames)
   {
     Preconditions.checkNotNull(metric, "metric");
     Preconditions.checkNotNull(aggregators, "aggregators");
     Preconditions.checkNotNull(logicalMetricNames, "logicalMetricNames");
-    Preconditions.checkArgument(aggregators.length == logicalMetricNames.length, "different length aggregators and" +
-      " logical names");
+    Preconditions.checkArgument(aggregators.length == logicalMetricNames.length,
+        "different length aggregators and logical names");
     addAggregatorsHelper(metric, aggregators, logicalMetricNames);
   }
 
@@ -146,8 +148,7 @@ public class MetricsAggregator implements AutoMetric.Aggregator, Serializable
     for (int i = 0; i < aggregators.length; i++) {
 
       String resultName = (logicalMetricNames == null || logicalMetricNames[i] == null) ?
-        (aggregators.length == 1 ? metric : deriveLogicalMetricName(metric, aggregators[i]))
-        : logicalMetricNames[i];
+          (aggregators.length == 1 ? metric : deriveLogicalMetricName(metric, aggregators[i])) : logicalMetricNames[i];
 
       laggregators.add(new LogicalMetricMeta(aggregators[i], resultName));
     }

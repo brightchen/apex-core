@@ -1,17 +1,20 @@
 /**
- * Copyright (C) 2015 DataTorrent, Inc.
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *         http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package com.datatorrent.stram.security;
 
@@ -21,6 +24,9 @@ import java.net.InetSocketAddress;
 import java.security.PrivilegedExceptionAction;
 import java.util.Iterator;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.security.Credentials;
@@ -28,8 +34,6 @@ import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.security.token.Token;
 import org.apache.hadoop.yarn.client.api.YarnClient;
 import org.apache.hadoop.yarn.conf.YarnConfiguration;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import com.datatorrent.api.StreamingApplication;
 
@@ -62,14 +66,13 @@ public class StramUserLogin
   public static void authenticate(String principal, String keytab) throws IOException
   {
     if ((principal != null) && !principal.isEmpty()
-      && (keytab != null) && !keytab.isEmpty()) {
+        && (keytab != null) && !keytab.isEmpty()) {
       try {
         UserGroupInformation.loginUserFromKeytab(principal, keytab);
         LOG.info("Login user {}", UserGroupInformation.getCurrentUser().getUserName());
         StramUserLogin.principal = principal;
         StramUserLogin.keytab = keytab;
-      }
-      catch (IOException ie) {
+      } catch (IOException ie) {
         LOG.error("Error login user with principal {}", principal, ie);
         throw ie;
       }
@@ -82,17 +85,14 @@ public class StramUserLogin
     //renew tokens
     final String tokenRenewer = conf.get(YarnConfiguration.RM_PRINCIPAL);
     if (tokenRenewer == null || tokenRenewer.length() == 0) {
-      throw new IOException(
-        "Can't get Master Kerberos principal for the RM to use as renewer");
+      throw new IOException("Can't get Master Kerberos principal for the RM to use as renewer");
     }
-    FileSystem fs = FileSystem.newInstance(conf);
+
     File keyTabFile;
-    try {
+    try (FileSystem fs = FileSystem.newInstance(conf)) {
       keyTabFile = FSUtil.copyToLocalFileSystem(fs, destinationDir, destinationFile, hdfsKeyTabFile, conf);
     }
-    finally {
-      fs.close();
-    }
+
     UserGroupInformation ugi = UserGroupInformation.loginUserFromKeytabAndReturnUGI(UserGroupInformation.getCurrentUser().getUserName(), keyTabFile.getAbsolutePath());
     try {
       ugi.doAs(new PrivilegedExceptionAction<Object>()
@@ -100,7 +100,7 @@ public class StramUserLogin
         @Override
         public Object run() throws Exception
         {
-          FileSystem fs1 = FileSystem.newInstance(conf);
+
           YarnClient yarnClient = null;
           if (renewRMToken) {
             yarnClient = YarnClient.createYarnClient();
@@ -108,14 +108,12 @@ public class StramUserLogin
             yarnClient.start();
           }
           Credentials creds = new Credentials();
-          try {
+          try (FileSystem fs1 = FileSystem.newInstance(conf)) {
             fs1.addDelegationTokens(tokenRenewer, creds);
             if (renewRMToken) {
               new StramClientUtils.ClientRMHelper(yarnClient, conf).addRMDelegationToken(tokenRenewer, creds);
             }
-          }
-          finally {
-            fs1.close();
+          } finally {
             if (renewRMToken) {
               yarnClient.stop();
             }
@@ -126,12 +124,10 @@ public class StramUserLogin
         }
       });
       UserGroupInformation.getCurrentUser().addCredentials(credentials);
-    }
-    catch (InterruptedException e) {
+    } catch (InterruptedException e) {
       LOG.error("Error while renewing tokens ", e);
       expiryTime = System.currentTimeMillis();
-    }
-    catch (IOException e) {
+    } catch (IOException e) {
       LOG.error("Error while renewing tokens ", e);
       expiryTime = System.currentTimeMillis();
     }

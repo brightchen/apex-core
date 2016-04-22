@@ -1,21 +1,32 @@
 /**
- * Copyright (C) 2015 DataTorrent, Inc.
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *         http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package com.datatorrent.stram;
 
-import java.io.*;
+import java.io.ByteArrayInputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.io.ObjectStreamClass;
 import java.util.EnumSet;
 
 import org.slf4j.Logger;
@@ -23,8 +34,13 @@ import org.slf4j.LoggerFactory;
 
 import org.apache.commons.io.IOUtils;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.*;
+import org.apache.hadoop.fs.CreateFlag;
+import org.apache.hadoop.fs.FSDataInputStream;
+import org.apache.hadoop.fs.FSDataOutputStream;
+import org.apache.hadoop.fs.FileContext;
+import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Options.Rename;
+import org.apache.hadoop.fs.Path;
 
 import com.datatorrent.stram.util.FSUtil;
 
@@ -35,9 +51,9 @@ import com.datatorrent.stram.util.FSUtil;
  */
 public class FSRecoveryHandler implements StreamingContainerManager.RecoveryHandler
 {
-  private final static Logger LOG = LoggerFactory.getLogger(FSRecoveryHandler.class);
+  private static final Logger LOG = LoggerFactory.getLogger(FSRecoveryHandler.class);
   private final Path basedir;
-  private final Path logPath ;
+  private final Path logPath;
   private final Path logBackupPath;
   private final FileSystem fs;
   private final Path snapshotPath;
@@ -87,9 +103,9 @@ public class FSRecoveryHandler implements StreamingContainerManager.RecoveryHand
     LOG.info("Creating {}", logPath);
     final FSDataOutputStream fsOutputStream;
     String scheme = null;
-    try{
+    try {
       scheme = fs.getScheme();
-    }catch(UnsupportedOperationException e){
+    } catch (UnsupportedOperationException e) {
       LOG.warn("{} doesn't implement getScheme() method", fs.getClass().getName());
     }
     if ("file".equals(scheme)) {
@@ -100,7 +116,8 @@ public class FSRecoveryHandler implements StreamingContainerManager.RecoveryHand
       fsOutputStream = fs.create(logPath);
     }
 
-    DataOutputStream osWrapper = new DataOutputStream(fsOutputStream) {
+    DataOutputStream osWrapper = new DataOutputStream(fsOutputStream)
+    {
       @Override
       public void flush() throws IOException
       {
@@ -151,18 +168,9 @@ public class FSRecoveryHandler implements StreamingContainerManager.RecoveryHand
     }
 
     LOG.debug("Writing checkpoint to {}", snapshotPath);
-    final FSDataOutputStream fsOutputStream = fs.create(snapshotPath);
-    try {
-      ObjectOutputStream oos = new ObjectOutputStream(fsOutputStream);
-      try {
-        oos.writeObject(state);
-      }
-      finally {
-        oos.close();
-      }
-    }
-    finally {
-      fsOutputStream.close();
+    try (FSDataOutputStream fsOutputStream = fs.create(snapshotPath);
+        ObjectOutputStream oos = new ObjectOutputStream(fsOutputStream)) {
+      oos.writeObject(state);
     }
     // remove snapshot backup
     if (fs.exists(snapshotBackupPath) && !fs.delete(snapshotBackupPath, false)) {
@@ -189,26 +197,14 @@ public class FSRecoveryHandler implements StreamingContainerManager.RecoveryHand
 
       // combine logs (w/o append, create new file)
       Path tmpLogPath = new Path(basedir, "log.combined");
-      FSDataOutputStream fsOut = fc.create(tmpLogPath, EnumSet.of(CreateFlag.CREATE, CreateFlag.OVERWRITE));
-      try {
-        FSDataInputStream fsIn = fc.open(logBackupPath);
-        try {
+      try (FSDataOutputStream fsOut = fc.create(tmpLogPath, EnumSet.of(CreateFlag.CREATE, CreateFlag.OVERWRITE))) {
+        try (FSDataInputStream fsIn = fc.open(logBackupPath)) {
           IOUtils.copy(fsIn, fsOut);
-        }
-        finally {
-          fsIn.close();
         }
 
-        fsIn = fc.open(logPath);
-        try {
+        try (FSDataInputStream fsIn = fc.open(logPath)) {
           IOUtils.copy(fsIn, fsOut);
         }
-        finally {
-          fsIn.close();
-        }
-      }
-      finally {
-        fsOut.close();
       }
 
       fc.rename(tmpLogPath, logPath, Rename.OVERWRITE);
@@ -232,33 +228,25 @@ public class FSRecoveryHandler implements StreamingContainerManager.RecoveryHand
     // indeterministic class loading behavior
     // http://stackoverflow.com/questions/9110677/readresolve-not-working-an-instance-of-guavas-serializedform-appears
     final ClassLoader loader = Thread.currentThread().getContextClassLoader();
-    ObjectInputStream ois = new ObjectInputStream(is) {
+    try (ObjectInputStream ois = new ObjectInputStream(is)
+    {
       @Override
       protected Class<?> resolveClass(ObjectStreamClass objectStreamClass)
-              throws IOException, ClassNotFoundException {
-          return Class.forName(objectStreamClass.getName(), true, loader);
+          throws IOException, ClassNotFoundException
+      {
+        return Class.forName(objectStreamClass.getName(), true, loader);
       }
-    };
-    //ObjectInputStream ois = new ObjectInputStream(is);
-    try {
+    }) {
       return ois.readObject();
-    }
-    catch (ClassNotFoundException cnfe) {
+    } catch (ClassNotFoundException cnfe) {
       throw new IOException("Failed to read checkpointed state", cnfe);
-    }
-    finally {
-      ois.close();
     }
   }
 
   public void writeConnectUri(String uri) throws IOException
   {
-    DataOutputStream out = fs.create(heartbeatPath, true);
-    try {
+    try (DataOutputStream out = fs.create(heartbeatPath, true)) {
       out.write(uri.getBytes());
-    }
-    finally {
-      out.close();
     }
     LOG.debug("Connect address: {} written to {} ", uri, heartbeatPath);
   }
@@ -270,8 +258,7 @@ public class FSRecoveryHandler implements StreamingContainerManager.RecoveryHand
     DataInputStream in = fs.open(heartbeatPath);
     try {
       bytes = IOUtils.toByteArray(in);
-    }
-    finally {
+    } finally {
       in.close();
     }
 
@@ -286,8 +273,7 @@ public class FSRecoveryHandler implements StreamingContainerManager.RecoveryHand
   {
     try {
       fs.close();
-    }
-    finally {
+    } finally {
       super.finalize();
     }
   }

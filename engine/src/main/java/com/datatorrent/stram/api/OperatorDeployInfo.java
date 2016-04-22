@@ -1,22 +1,29 @@
 /**
- * Copyright (C) 2015 DataTorrent, Inc.
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *         http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package com.datatorrent.stram.api;
 
 import java.io.Serializable;
-import java.util.*;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 import org.apache.commons.lang.builder.ToStringBuilder;
 import org.apache.commons.lang.builder.ToStringStyle;
@@ -69,6 +76,12 @@ public class OperatorDeployInfo implements Serializable, OperatorContext
 
   @Override
   public void sendMetrics(Collection<String> metricNames)
+  {
+    throw new UnsupportedOperationException("Not supported yet.");
+  }
+
+  @Override
+  public int getWindowsFromCheckpoint()
   {
     throw new UnsupportedOperationException("Not supported yet.");
   }
@@ -134,7 +147,7 @@ public class OperatorDeployInfo implements Serializable, OperatorContext
     /*
      public StreamCodec streamCodec;
      */
-    public Map<Integer, StreamCodec<?>> streamCodecs = new HashMap<Integer, StreamCodec<?>>();
+    public Map<Integer, StreamCodec<?>> streamCodecs = new HashMap<>();
     /**
      * Partition keys for the input stream. Null w/o partitioning.
      */
@@ -149,14 +162,14 @@ public class OperatorDeployInfo implements Serializable, OperatorContext
     public String toString()
     {
       return new ToStringBuilder(this, ToStringStyle.SHORT_PREFIX_STYLE)
-              .append("portName", this.portName)
-              .append("streamId", this.declaredStreamId)
-              .append("sourceNodeId", this.sourceNodeId)
-              .append("sourcePortName", this.sourcePortName)
-              .append("locality", this.locality)
-              .append("partitionMask", this.partitionMask)
-              .append("partitionKeys", this.partitionKeys)
-              .toString();
+          .append("portName", this.portName)
+          .append("streamId", this.declaredStreamId)
+          .append("sourceNodeId", this.sourceNodeId)
+          .append("sourcePortName", this.sourcePortName)
+          .append("locality", this.locality)
+          .append("partitionMask", this.partitionMask)
+          .append("partitionKeys", this.partitionKeys)
+          .toString();
     }
 
     @Override
@@ -214,7 +227,7 @@ public class OperatorDeployInfo implements Serializable, OperatorContext
     public String bufferServerHost;
     public int bufferServerPort;
     public byte[] bufferServerToken;
-    public Map<Integer, StreamCodec<?>> streamCodecs = new HashMap<Integer, StreamCodec<?>>();
+    public Map<Integer, StreamCodec<?>> streamCodecs = new HashMap<>();
     /**
      * Context attributes for output port
      */
@@ -301,13 +314,13 @@ public class OperatorDeployInfo implements Serializable, OperatorContext
   @Override
   public String toString()
   {
-    return new ToStringBuilder(this, ToStringStyle.SHORT_PREFIX_STYLE).append("id", this.id).
-            append("name", this.name).
-            append("type", this.type).
-            append("checkpoint", this.checkpoint).
-            append("inputs", this.inputs).
-            append("outputs", this.outputs).
-            toString();
+    return new ToStringBuilder(this, ToStringStyle.SHORT_PREFIX_STYLE).append("id", this.id)
+        .append("name", this.name)
+        .append("type", this.type)
+        .append("checkpoint", this.checkpoint)
+        .append("inputs", this.inputs)
+        .append("outputs", this.outputs)
+        .toString();
   }
 
 }

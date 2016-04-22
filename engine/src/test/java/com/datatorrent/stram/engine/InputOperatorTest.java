@@ -1,33 +1,22 @@
 /**
- * Copyright (C) 2015 DataTorrent, Inc.
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *         http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package com.datatorrent.stram.engine;
-
-import com.datatorrent.stram.StramLocalCluster;
-import com.datatorrent.stram.plan.logical.LogicalPlan;
-import com.datatorrent.stram.support.StramTestSupport;
-import com.datatorrent.stram.support.StramTestSupport.WaitCondition;
-import com.datatorrent.common.util.BaseOperator;
-import com.datatorrent.common.util.AsyncFSStorageAgent;
-import com.datatorrent.api.DAG.Locality;
-import com.datatorrent.api.DefaultInputPort;
-import com.datatorrent.api.DefaultOutputPort;
-import com.datatorrent.api.InputOperator;
-import com.datatorrent.api.Operator;
-import com.datatorrent.api.Context.OperatorContext;
-import com.datatorrent.netlet.util.CircularBuffer;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -38,12 +27,26 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.Assert;
 import org.junit.Test;
 
+import com.datatorrent.api.Context.OperatorContext;
+import com.datatorrent.api.DAG.Locality;
+import com.datatorrent.api.DefaultInputPort;
+import com.datatorrent.api.DefaultOutputPort;
+import com.datatorrent.api.InputOperator;
+import com.datatorrent.api.Operator;
+import com.datatorrent.common.util.AsyncFSStorageAgent;
+import com.datatorrent.common.util.BaseOperator;
+import com.datatorrent.netlet.util.CircularBuffer;
+import com.datatorrent.stram.StramLocalCluster;
+import com.datatorrent.stram.plan.logical.LogicalPlan;
+import com.datatorrent.stram.support.StramTestSupport;
+import com.datatorrent.stram.support.StramTestSupport.WaitCondition;
+
 /**
  *
  */
 public class InputOperatorTest
 {
-  static HashMap<String, List<?>> collections = new HashMap<String, List<?>>();
+  static HashMap<String, List<?>> collections = new HashMap<>();
   static AtomicInteger tupleCount = new AtomicInteger();
 
   public static class EvenOddIntegerGeneratorInputOperator implements InputOperator, com.datatorrent.api.Operator.ActivationListener<OperatorContext>
@@ -89,8 +92,8 @@ public class InputOperatorTest
               (i % 2 == 0 ? evenBuffer : oddBuffer).put(i++);
               Thread.sleep(20);
             }
-          }
-          catch (InterruptedException ie) {
+          } catch (InterruptedException ie) {
+            // break out
           }
         }
       };
@@ -117,8 +120,8 @@ public class InputOperatorTest
 
   public static class CollectorModule<T> extends BaseOperator
   {
-    public final transient CollectorInputPort<T> even = new CollectorInputPort<T>("even", this);
-    public final transient CollectorInputPort<T> odd = new CollectorInputPort<T>("odd", this);
+    public final transient CollectorInputPort<T> even = new CollectorInputPort<>("even", this);
+    public final transient CollectorInputPort<T> odd = new CollectorInputPort<>("odd", this);
   }
 
   @Test
@@ -126,7 +129,7 @@ public class InputOperatorTest
   {
     LogicalPlan dag = new LogicalPlan();
     String testWorkDir = new File("target").getAbsolutePath();
-    dag.setAttribute(OperatorContext.STORAGE_AGENT, new AsyncFSStorageAgent(testWorkDir + "/localBasePath", testWorkDir, null));
+    dag.setAttribute(OperatorContext.STORAGE_AGENT, new AsyncFSStorageAgent(testWorkDir, null));
     EvenOddIntegerGeneratorInputOperator generator = dag.addOperator("NumberGenerator", EvenOddIntegerGeneratorInputOperator.class);
     final CollectorModule<Number> collector = dag.addOperator("NumberCollector", new CollectorModule<Number>());
 
@@ -137,9 +140,11 @@ public class InputOperatorTest
     lc.setHeartbeatMonitoringEnabled(false);
 
     lc.runAsync();
-    WaitCondition c = new WaitCondition() {
+    WaitCondition c = new WaitCondition()
+    {
       @Override
-      public boolean isComplete() {
+      public boolean isComplete()
+      {
         return tupleCount.get() > 2;
       }
     };

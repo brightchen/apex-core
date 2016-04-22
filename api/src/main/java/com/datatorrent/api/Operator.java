@@ -1,17 +1,20 @@
 /**
- * Copyright (C) 2015 DataTorrent, Inc.
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *         http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package com.datatorrent.api;
 
@@ -33,7 +36,7 @@ public interface Operator extends Component<OperatorContext>
    * processed data. This is the default mode.
    * <br />
    * In AT_MOST_ONCE mode in case of failure, the operator will start with the tuples which are being sent at the time
-   * the failed operator is recovered. Unlike AT_LEAST_MOST once operator, it will not try to recover the tuples which
+   * the failed operator is recovered. Unlike AT_LEAST_ONCE operator, it will not try to recover the tuples which
    * may have arrived while operator was down. Typically you would want to mark operators AT_MOST_ONCE if it does not
    * materially impact your computation if a few tuples are omitted from the computation and the expected throughput is
    * most likely to consume all the resources available for the operator or the DAG.
@@ -93,6 +96,25 @@ public interface Operator extends Component<OperatorContext>
   {
     void process(T tuple);
 
+  }
+
+  /**
+   * DelayOperator is an operator of which the outgoing streaming window id is incremented by *one* by the
+   * engine, thus allowing loops in the "DAG". The output ports of a DelayOperator, if connected, *must*
+   * immediately connect to an upstream operator in the data flow path. Note that at least one output port of
+   * DelayOperator should be connected in order for the DelayOperator to serve its purpose.
+   *
+   * This is meant for iterative algorithms in the topology. A larger window increment can be simulated by an
+   * implementation of this interface.
+   */
+  interface DelayOperator extends Operator
+  {
+    /**
+     * This method gets called at the first window of the execution.
+     * The implementation is expected to emit tuples for initialization and/or
+     * recovery.
+     */
+    void firstWindow();
   }
 
   /**
@@ -221,6 +243,7 @@ public interface Operator extends Component<OperatorContext>
    * Operators must implement this interface if they are interested in being notified as
    * soon as the operator state is checkpointed or committed.
    *
+   * @deprecated Use {@link CheckpointNotificationListener} instead
    * @since 0.3.2
    */
   public static interface CheckpointListener
@@ -265,6 +288,31 @@ public interface Operator extends Component<OperatorContext>
      */
     public void handleIdleTime();
 
+  }
+
+  /**
+   * Operators that need to be notified about checkpoint events should implement this interface.
+   *
+   * The notification callbacks in this interface are called outside window boundaries so the operators should not
+   * attempt to send any tuples in these callbacks.
+   *
+   */
+  interface CheckpointNotificationListener extends CheckpointListener
+  {
+    /**
+     * Notify the operator before a checkpoint is performed.
+     *
+     * Operators may need to perform certain tasks before a checkpoint such as calling flush on a stream to write out
+     * pending data. Having this notification helps operators perform such operations optimally by doing them once
+     * before checkpoint as opposed to doing them at the end of every window.
+     *
+     * The method will be called before the checkpoint is performed. It will be called after
+     * {@link Operator#endWindow()} call of the window preceding the checkpoint and before the checkpoint is
+     * actually performed.
+     *
+     * @param windowId The window id of the window preceding the checkpoint
+     */
+    void beforeCheckpoint(long windowId);
   }
 
 }
