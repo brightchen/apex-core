@@ -1492,6 +1492,8 @@ public class StreamingContainerManager implements PlanContext
       });
     }
 
+    sca.containerStackTrace = heartbeat.stackTrace;
+
     if (heartbeat.restartRequested) {
       LOG.error("Container {} restart request", sca.container.getExternalId());
       containerStopRequests.put(sca.container.getExternalId(), sca.container.getExternalId());
@@ -1823,6 +1825,9 @@ public class StreamingContainerManager implements PlanContext
     }
     rsp.nodeRequests = requests;
     rsp.committedWindowId = committedWindowId;
+    rsp.stackTraceRequired = sca.stackTraceRequested;
+    sca.stackTraceRequested = false;
+
     return rsp;
   }
 
@@ -3138,7 +3143,7 @@ public class StreamingContainerManager implements PlanContext
 
       lp.setAttribute(LogicalPlan.APPLICATION_ID, appId);
       lp.setAttribute(LogicalPlan.APPLICATION_PATH, newApp.assertAppPath());
-      lp.setAttribute(LogicalPlan.LIBRARY_JARS, newApp.getValue(LogicalPlan.LIBRARY_JARS));
+      lp.setAttribute(Context.DAGContext.LIBRARY_JARS, newApp.getValue(Context.DAGContext.LIBRARY_JARS));
       lp.setAttribute(LogicalPlan.ARCHIVES, newApp.getValue(LogicalPlan.ARCHIVES));
 
       this.finals = new FinalVars(finals, lp);
