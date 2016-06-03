@@ -64,7 +64,9 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.primitives.Primitives;
 
 import com.datatorrent.api.Component;
+import com.datatorrent.api.DAG.GenericOperator;
 import com.datatorrent.api.InputOperator;
+import com.datatorrent.api.Module;
 import com.datatorrent.api.Operator;
 import com.datatorrent.common.util.BaseOperator;
 import com.datatorrent.stram.webapp.asm.ClassNodeType;
@@ -346,15 +348,16 @@ public class TypeGraph
     return typeGraph.size();
   }
 
-  public Set<String> getAllDTInstantiableOperators()
+  public Set<String> getAllDTInstantiableGenericOperators()
   {
-    TypeGraphVertex tgv = typeGraph.get(Operator.class.getName());
+    TypeGraphVertex tgv = typeGraph.get(GenericOperator.class.getName());
     if (tgv == null) {
       return null;
     }
     Set<String> result = new TreeSet<>();
     for (TypeGraphVertex node : tgv.allInstantiableDescendants) {
-      if ((isAncestor(InputOperator.class.getName(), node.typeName) || !getAllInputPorts(node).isEmpty())) {
+      if ((isAncestor(InputOperator.class.getName(), node.typeName) || isAncestor(Module.class.getName(), node.typeName)
+          || !getAllInputPorts(node).isEmpty())) {
         result.add(node.typeName);
       }
     }
@@ -603,7 +606,7 @@ public class TypeGraph
         this.classNode = ccn;
 
         // update the port information if it is a Operator
-        if (owner.isAncestor(Operator.class.getName(), typeName)) {
+        if (owner.isAncestor(GenericOperator.class.getName(), typeName)) {
           // load ports if it is an Operator class
           CompactUtil.updateCompactClassPortInfo(classN, ccn);
           List<CompactFieldNode> prunedFields = new LinkedList<>();
@@ -816,7 +819,7 @@ public class TypeGraph
       for (CompactFieldNode field : fields) {
         TypeGraphVertex fieldVertex = typeGraph.get(field.getDescription());
 
-        if (isAncestor(portVertex, fieldVertex)) {
+        if (isAncestor(portVertex, fieldVertex) && !isNodeInList(ports, field)) {
           ports.add(field);
         }
       }
@@ -824,6 +827,16 @@ public class TypeGraph
     for (TypeGraphVertex ancestor : tgv.ancestors) {
       getAllPortsWithAncestor(portVertex, ancestor, ports);
     }
+  }
+
+  private static boolean isNodeInList(List<CompactFieldNode> list, CompactFieldNode vertex)
+  {
+    for (CompactFieldNode node: list) {
+      if (node.getName().equals(vertex.getName())) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private void addClassPropertiesAndPorts(String clazzName, JSONObject desc) throws JSONException
@@ -947,7 +960,7 @@ public class TypeGraph
     if (fields != null) {
       for (CompactFieldNode field : fields) {
         TypeGraphVertex fieldVertex = typeGraph.get(field.getDescription());
-        if (isAncestor(portVertex, fieldVertex)) {
+        if (isAncestor(portVertex, fieldVertex) && !isNodeInList(ports, field)) {
           ports.add(field);
         }
       }
