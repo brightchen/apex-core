@@ -89,14 +89,13 @@ import org.apache.log4j.Level;
 import org.apache.tools.ant.DirectoryScanner;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.Sets;
 import com.sun.jersey.api.client.WebResource;
 
 import com.datatorrent.api.Context;
 import com.datatorrent.api.DAG.GenericOperator;
 import com.datatorrent.api.Operator;
 import com.datatorrent.api.StreamingApplication;
-import com.datatorrent.stram.StramClient;
+import com.datatorrent.stram.StramUtils;
 import com.datatorrent.stram.client.AppPackage;
 import com.datatorrent.stram.client.AppPackage.AppInfo;
 import com.datatorrent.stram.client.ConfigPackage;
@@ -123,6 +122,7 @@ import com.datatorrent.stram.plan.logical.requests.SetPortAttributeRequest;
 import com.datatorrent.stram.plan.logical.requests.SetStreamAttributeRequest;
 import com.datatorrent.stram.security.StramUserLogin;
 import com.datatorrent.stram.util.JSONSerializationProvider;
+import com.datatorrent.stram.util.SecurityUtils;
 import com.datatorrent.stram.util.VersionInfo;
 import com.datatorrent.stram.util.WebServicesClient;
 import com.datatorrent.stram.webapp.OperatorDiscoverer;
@@ -184,6 +184,9 @@ public class ApexCli
   private String forcePrompt;
   private String kerberosPrincipal;
   private String kerberosKeyTab;
+
+  private static String CONFIG_EXCLUSIVE = "exclusive";
+  private static String CONFIG_INCLUSIVE = "inclusive";
 
   private static class FileLineReader extends ConsoleReader
   {
@@ -606,8 +609,8 @@ public class ApexCli
         new Arg[]{new Arg("pattern")},
         "List applications"));
     globalCommands.put("kill-app", new CommandSpec(new KillAppCommand(),
-        new Arg[]{new Arg("app-id")},
-        new Arg[]{new VarArg("app-id")},
+        new Arg[]{new Arg("app-id/app-name")},
+        new Arg[]{new VarArg("app-id/app-name")},
         "Kill an app"));
     globalCommands.put("show-logical-plan", new OptionsCommandSpec(new ShowLogicalPlanCommand(),
         new Arg[]{new FileArg("jar-file/app-package-file")},
@@ -707,7 +710,7 @@ public class ApexCli
         "Shutdown an app"));
     connectedCommands.put("kill-app", new CommandSpec(new KillAppCommand(),
         null,
-        new Arg[]{new VarArg("app-id")},
+        new Arg[]{new VarArg("app-id/app-name")},
         "Kill an app"));
     connectedCommands.put("wait", new CommandSpec(new WaitCommand(),
         new Arg[]{new Arg("timeout")},
@@ -958,6 +961,24 @@ public class ApexCli
     return result.toString();
   }
 
+  protected ApplicationReport getApplicationByName(String appName)
+  {
+    if (appName == null) {
+      throw new CliException("Invalid application name provided by user");
+    }
+    List<ApplicationReport> appList = getApplicationList();
+    for (ApplicationReport ar : appList) {
+      if ((ar.getName().equals(appName)) &&
+          (ar.getYarnApplicationState() != YarnApplicationState.KILLED) &&
+          (ar.getYarnApplicationState() != YarnApplicationState.FINISHED)) {
+        LOG.debug("Application Name: {} Application ID: {} Application State: {}",
+            ar.getName(), ar.getApplicationId().toString(), YarnApplicationState.FINISHED);
+        return ar;
+      }
+    }
+    return null;
+  }
+
   protected ApplicationReport getApplication(String appId)
   {
     List<ApplicationReport> appList = getApplicationList();
@@ -978,7 +999,7 @@ public class ApexCli
     return null;
   }
 
-  private static class CliException extends RuntimeException
+  static class CliException extends RuntimeException
   {
     private static final long serialVersionUID = 1L;
 
@@ -1101,6 +1122,13 @@ public class ApexCli
         org.apache.log4j.Logger.getRootLogger(),
         org.apache.log4j.Logger.getLogger(ApexCli.class)
     }) {
+
+     /*
+      * Override logLevel specified by user, the same logLevel would be inherited by all
+      * appenders related to logger.
+      */
+      logger.setLevel(logLevel);
+
       @SuppressWarnings("unchecked")
       Enumeration<Appender> allAppenders = logger.getAllAppenders();
       while (allAppenders.hasMoreElements()) {
@@ -1128,6 +1156,7 @@ public class ApexCli
   public void init() throws IOException
   {
     conf = StramClientUtils.addDTSiteResources(new YarnConfiguration());
+    SecurityUtils.init(conf);
     fs = StramClientUtils.newFileSystemInstance(conf);
     stramAgent = new StramAgent(fs, conf);
 
@@ -1588,7 +1617,7 @@ public class ApexCli
   private List<ApplicationReport> getApplicationList()
   {
     try {
-      return yarnClient.getApplications(Sets.newHashSet(StramClient.YARN_APPLICATION_TYPE));
+      return StramUtils.getApexApplicationList(yarnClient);
     } catch (Exception e) {
       throw new CliException("Error getting application list from resource manager", e);
     }
@@ -1849,6 +1878,9 @@ public class ApexCli
             config.set(StramAppLauncher.ORIGINAL_APP_ID, commandLineInfo.origAppId);
           }
           config.set(StramAppLauncher.QUEUE_NAME, commandLineInfo.queue != null ? commandLineInfo.queue : "default");
+          if (commandLineInfo.tags != null) {
+            config.set(StramAppLauncher.TAGS, commandLineInfo.tags);
+          }
         } catch (Exception ex) {
           throw new CliException("Error opening the config XML file: " + configFile, ex);
         }
@@ -2179,6 +2211,11 @@ public class ApexCli
           jsonObj.put("state", ar.getYarnApplicationState().name());
           jsonObj.put("trackingUrl", ar.getTrackingUrl());
           jsonObj.put("finalStatus", ar.getFinalApplicationStatus());
+          JSONArray tags = new JSONArray();
+          for (String tag : ar.getApplicationTags()) {
+            tags.put(tag);
+          }
+          jsonObj.put("tags", tags);
 
           totalCnt++;
           if (ar.getYarnApplicationState() == YarnApplicationState.RUNNING) {
@@ -2244,7 +2281,14 @@ public class ApexCli
         while (++i < args.length) {
           app = getApplication(args[i]);
           if (app == null) {
-            throw new CliException("Streaming application with id " + args[i] + " is not found.");
+
+            /*
+             * try once again with application name type.
+             */
+            app = getApplicationByName(args[i]);
+            if (app == null) {
+              throw new CliException("Streaming application with id or name " + args[i] + " is not found.");
+            }
           }
           yarnClient.killApplication(app.getApplicationId());
           if (app == currentApp) {
@@ -3366,6 +3410,11 @@ public class ApexCli
       response.put("state", appReport.getYarnApplicationState().name());
       response.put("trackingUrl", appReport.getTrackingUrl());
       response.put("finalStatus", appReport.getFinalApplicationStatus());
+      JSONArray tags = new JSONArray();
+      for (String tag : appReport.getApplicationTags()) {
+        tags.put(tag);
+      }
+      response.put("tags", tags);
       printJson(response);
     }
 
@@ -3453,7 +3502,7 @@ public class ApexCli
       matchAppName = commandLineInfo.args[1];
     }
 
-    List<AppInfo> applications = new ArrayList<>(ap.getApplications());
+    List<AppInfo> applications = new ArrayList<>(getAppsFromPackageAndConfig(ap, cp, commandLineInfo.useConfigApps));
 
     if (matchAppName != null) {
       Iterator<AppInfo> it = applications.iterator();
@@ -3626,6 +3675,10 @@ public class ApexCli
       launchArgs.add("-queue");
       launchArgs.add(commandLineInfo.queue);
     }
+    if (commandLineInfo.tags != null) {
+      launchArgs.add("-tags");
+      launchArgs.add(commandLineInfo.tags);
+    }
     launchArgs.add(appFile);
     if (!appFile.endsWith(".json") && !appFile.endsWith(".properties")) {
       launchArgs.add(selectedApp.name);
@@ -3639,7 +3692,9 @@ public class ApexCli
   DTConfiguration getLaunchAppPackageProperties(AppPackage ap, ConfigPackage cp, LaunchCommandLineInfo commandLineInfo, String appName) throws Exception
   {
     DTConfiguration launchProperties = new DTConfiguration();
-    List<AppInfo> applications = ap.getApplications();
+
+    List<AppInfo> applications = getAppsFromPackageAndConfig(ap, cp, commandLineInfo.useConfigApps);
+
     AppInfo selectedApp = null;
     for (AppInfo app : applications) {
       if (app.name.equals(appName)) {
@@ -3713,6 +3768,52 @@ public class ApexCli
 
     //StramClientUtils.evalProperties(launchProperties);
     return launchProperties;
+  }
+
+  private List<AppInfo> getAppsFromPackageAndConfig(AppPackage ap, ConfigPackage cp, String configApps)
+  {
+    if (cp == null || configApps == null || !(configApps.equals(CONFIG_INCLUSIVE) || configApps.equals(CONFIG_EXCLUSIVE))) {
+      return ap.getApplications();
+    }
+
+    File src = new File(cp.tempDirectory(), "app");
+    File dest = new File(ap.tempDirectory(), "app");
+
+    if (!src.exists()) {
+      return ap.getApplications();
+    }
+
+    if (configApps.equals(CONFIG_EXCLUSIVE)) {
+
+      for (File file : dest.listFiles()) {
+
+        if (file.getName().endsWith(".json")) {
+          FileUtils.deleteQuietly(new File(dest, file.getName()));
+        }
+      }
+    } else {
+      for (File file : src.listFiles()) {
+        FileUtils.deleteQuietly(new File(dest, file.getName()));
+      }
+    }
+
+    for (File file : src.listFiles()) {
+      try {
+        FileUtils.moveFileToDirectory(file, dest, true);
+      } catch (IOException e) {
+        LOG.warn("Application from the config file {} failed while processing.", file.getName());
+      }
+    }
+
+    try {
+      FileUtils.deleteDirectory(src);
+    } catch (IOException e) {
+      LOG.warn("Failed to delete the Config Apps folder");
+    }
+
+    ap.processAppDirectory(configApps.equals(CONFIG_EXCLUSIVE));
+
+    return ap.getApplications();
   }
 
   private class GetAppPackageOperatorsCommand implements Command
@@ -3849,7 +3950,9 @@ public class ApexCli
     final Option originalAppID = add(OptionBuilder.withArgName("application id").hasArg().withDescription("Specify original application identifier for restart.").create("originalAppId"));
     final Option exactMatch = add(new Option("exactMatch", "Only consider applications with exact app name"));
     final Option queue = add(OptionBuilder.withArgName("queue name").hasArg().withDescription("Specify the queue to launch the application").create("queue"));
+    final Option tags = add(OptionBuilder.withArgName("comma separated tags").hasArg().withDescription("Specify the tags for the application").create("tags"));
     final Option force = add(new Option("force", "Force launch the application. Do not check for compatibility"));
+    final Option useConfigApps = add(OptionBuilder.withArgName("inclusive or exclusive").hasArg().withDescription("\"inclusive\" - merge the apps in config and app package. \"exclusive\" - only show config package apps.").create("useConfigApps"));
 
     private Option add(Option opt)
     {
@@ -3886,10 +3989,13 @@ public class ApexCli
     result.archives = line.getOptionValue(LAUNCH_OPTIONS.archives.getOpt());
     result.files = line.getOptionValue(LAUNCH_OPTIONS.files.getOpt());
     result.queue = line.getOptionValue(LAUNCH_OPTIONS.queue.getOpt());
+    result.tags = line.getOptionValue(LAUNCH_OPTIONS.tags.getOpt());
     result.args = line.getArgs();
     result.origAppId = line.getOptionValue(LAUNCH_OPTIONS.originalAppID.getOpt());
     result.exactMatch = line.hasOption("exactMatch");
     result.force = line.hasOption("force");
+    result.useConfigApps = line.getOptionValue(LAUNCH_OPTIONS.useConfigApps.getOpt());
+
     return result;
   }
 
@@ -3903,11 +4009,13 @@ public class ApexCli
     String libjars;
     String files;
     String queue;
+    String tags;
     String archives;
     String origAppId;
     boolean exactMatch;
     boolean force;
     String[] args;
+    String useConfigApps;
   }
 
   @SuppressWarnings("static-access")

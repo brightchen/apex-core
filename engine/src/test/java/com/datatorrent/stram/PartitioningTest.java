@@ -260,7 +260,7 @@ public class PartitioningTest
 
     };
     StramTestSupport.awaitCompletion(c, 10000);
-    Assert.assertTrue("Number partitions " + ow, c.isComplete());
+    Assert.assertTrue("Number partitions match " + ow, c.isComplete());
     return lc.getPlanOperators(ow);
   }
 
@@ -281,8 +281,8 @@ public class PartitioningTest
 
     CollectorOperator collector = dag.addOperator("partitionedCollector", new CollectorOperator());
     collector.prefix = "" + System.identityHashCode(collector);
-    dag.setAttribute(collector, OperatorContext.PARTITIONER, new StatelessPartitioner<CollectorOperator>(2));
-    dag.setAttribute(collector, OperatorContext.STATS_LISTENERS, Arrays.asList(new StatsListener[]{new PartitionLoadWatch()}));
+    dag.setOperatorAttribute(collector, OperatorContext.PARTITIONER, new StatelessPartitioner<CollectorOperator>(2));
+    dag.setOperatorAttribute(collector, OperatorContext.STATS_LISTENERS, Arrays.asList(new StatsListener[]{new PartitionLoadWatch()}));
     dag.addStream("fromInput", input.output, collector.input);
 
     CollectorOperator singleCollector = dag.addOperator("singleCollector", new CollectorOperator());
@@ -298,7 +298,7 @@ public class PartitioningTest
     for (PTOperator oper : partitions) {
       containers.add(oper.getContainer());
     }
-    Assert.assertTrue("Number of containers are 5", 5 == lc.dnmgr.getPhysicalPlan().getContainers().size());
+    Assert.assertTrue("Number of containers are 4", 4 == lc.dnmgr.getPhysicalPlan().getContainers().size());
 
     PTOperator splitPartition = partitions.get(0);
     PartitionLoadWatch.put(splitPartition, 1);
@@ -424,7 +424,7 @@ public class PartitioningTest
       dag.setAttribute(Context.OperatorContext.STORAGE_AGENT, new AsyncFSStorageAgent(checkpointDir.getPath(), null));
 
       PartitionableInputOperator input = dag.addOperator("input", new PartitionableInputOperator());
-      dag.setAttribute(input, OperatorContext.STATS_LISTENERS, Arrays.asList(new StatsListener[]{new PartitionLoadWatch()}));
+      dag.setOperatorAttribute(input, OperatorContext.STATS_LISTENERS, Arrays.asList(new StatsListener[]{new PartitionLoadWatch()}));
 
       StramLocalCluster lc = new StramLocalCluster(dag);
       lc.setHeartbeatMonitoringEnabled(false);

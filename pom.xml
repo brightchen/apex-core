@@ -25,12 +25,12 @@
   <parent>
     <groupId>org.apache</groupId>
     <artifactId>apache</artifactId>
-    <version>16</version>
+    <version>18</version>
   </parent>
 
   <groupId>org.apache.apex</groupId>
   <artifactId>apex</artifactId>
-  <version>3.5.0-SNAPSHOT</version>
+  <version>3.6.0-SNAPSHOT</version>
   <packaging>pom</packaging>
 
   <name>Apache Apex</name>
@@ -57,13 +57,13 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <maven.compiler.optimize>false</maven.compiler.optimize>
     <maven.build.timestamp.format>yyyyMMdd</maven.build.timestamp.format>
-    <hadoop.version>2.2.0</hadoop.version>
+    <hadoop.version>2.6.0</hadoop.version>
     <github.global.server>github</github.global.server>
     <jackson.version>1.9.13</jackson.version>
     <jersey.version>1.9</jersey.version>
     <!-- do not change jetty version as later versions have problems with DefaultServlet -->
     <jetty.version>8.1.10.v20130312</jetty.version>
-    <project.old.version>3.4.0</project.old.version>
+    <project.old.version>3.5.0</project.old.version>
     <license.skip>true</license.skip>
     <findbugs.xmlOutput>true</findbugs.xmlOutput>
     <findbugs.failOnError>false</findbugs.failOnError>
@@ -116,6 +116,7 @@
             <exclude>**/*.md</exclude>
             <exclude>**/*.txt</exclude>
             <exclude>**/*.yml</exclude>
+            <exclude>**/src/test/resources/**/*.keytab</exclude>
             <exclude>**/*.importorder</exclude>
             <exclude>**/archetype-resources/**</exclude>
             <exclude>misc/ide-templates/**</exclude>
@@ -192,6 +193,7 @@
             <exclude>.idea/**</exclude>
             <exclude>**/src/test/resources/**/MANIFEST.MF</exclude>
             <exclude>**/src/test/resources/**/*.json</exclude>
+            <exclude>**/src/test/resources/**/*.keytab</exclude>
             <exclude>**/resources/META-INF/services/**</exclude>
             <exclude>**/archetype-resources/**</exclude>
             <exclude>**/*.md</exclude>
@@ -228,12 +230,12 @@
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-surefire-plugin</artifactId>
-          <version>2.14.1</version>
+          <version>2.19.1</version>
           <dependencies>
             <dependency>
               <groupId>org.apache.maven.surefire</groupId>
               <artifactId>surefire-junit47</artifactId>
-              <version>2.14.1</version>
+              <version>2.19.1</version>
             </dependency>
           </dependencies>
           <configuration>
@@ -337,7 +339,7 @@
             <dependency>
               <groupId>org.apache.apex</groupId>
               <artifactId>apex-codestyle-config</artifactId>
-              <version>1.0.0-incubating</version>
+              <version>1.1.0</version>
             </dependency>
             <dependency>
               <groupId>com.puppycrawl.tools</groupId>
@@ -367,7 +369,7 @@
         <plugin>
           <groupId>com.github.siom79.japicmp</groupId>
           <artifactId>japicmp-maven-plugin</artifactId>
-          <version>0.7.0</version>
+          <version>0.9.0</version>
           <configuration>
             <oldVersion>
               <dependency>
@@ -391,8 +393,6 @@
               <excludes>
                 <exclude>@org.apache.hadoop.classification.InterfaceStability$Evolving</exclude>
                 <exclude>@org.apache.hadoop.classification.InterfaceStability$Unstable</exclude>
-                <!-- com.ning:async-http-client upgrade -->
-                <exclude>com.datatorrent.common.util.PubSubWebSocketClient</exclude>
               </excludes>
             </parameter>
           </configuration>
@@ -430,8 +430,6 @@
         <distMgmtReleaseUrl>https://repository.apache.org/service/local/staging/deploy/maven2</distMgmtReleaseUrl>
         <distMgmtDevUrl>file://${project.build.directory}/mvn-repo</distMgmtDevUrl>
         <sourceReleaseAssemblyDescriptor>source-release-zip-tar</sourceReleaseAssemblyDescriptor>
-        <package.prefix>/opt/datatorrent</package.prefix>
-        <package.groupname>dtorrent</package.groupname>
       </properties>
       <distributionManagement>
         <repository>
@@ -464,12 +462,24 @@
     <profile>
       <activation>
         <file>
-          <missing>${basedir}/src/main</missing>
+          <exists>${basedir}/NOTICE</exists>
         </file>
       </activation>
       <properties>
         <remoteresources.skip>true</remoteresources.skip>
+        <!-- do not push source archives to the repo - see MPOM-90 -->
+        <assembly.attach>false</assembly.attach>
       </properties>
+      <build>
+        <plugins>
+          <plugin>
+            <artifactId>maven-assembly-plugin</artifactId>
+            <configuration>
+              <finalName>apache-apex-core-${project.version}</finalName>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
     </profile>
   </profiles>
 </project>

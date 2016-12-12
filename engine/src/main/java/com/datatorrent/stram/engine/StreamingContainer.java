@@ -24,7 +24,6 @@ import java.lang.management.GarbageCollectorMXBean;
 import java.lang.management.ManagementFactory;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
-import java.net.SocketAddress;
 import java.net.UnknownHostException;
 import java.util.AbstractMap.SimpleEntry;
 import java.util.ArrayList;
@@ -39,7 +38,6 @@ import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CountDownLatch;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -53,7 +51,6 @@ import org.apache.hadoop.security.Credentials;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.security.token.Token;
 import org.apache.hadoop.yarn.conf.YarnConfiguration;
-import org.apache.log4j.DTLoggerFactory;
 import org.apache.log4j.LogManager;
 
 import com.datatorrent.api.Attribute;
@@ -118,6 +115,7 @@ import com.datatorrent.stram.stream.MuxStream;
 import com.datatorrent.stram.stream.OiOStream;
 import com.datatorrent.stram.stream.PartitionAwareSink;
 import com.datatorrent.stram.stream.PartitionAwareSinkForPersistence;
+import com.datatorrent.stram.util.LoggerUtil;
 
 import net.engio.mbassy.bus.MBassador;
 import net.engio.mbassy.bus.config.BusConfiguration;
@@ -155,8 +153,8 @@ public class StreamingContainer extends YarnContainerMain
    */
   private long firstWindowMillis;
   private int windowWidthMillis;
-  private InetSocketAddress bufferServerAddress;
-  private com.datatorrent.bufferserver.server.Server bufferServer;
+  protected InetSocketAddress bufferServerAddress;
+  protected com.datatorrent.bufferserver.server.Server bufferServer;
   private int checkpointWindowCount;
   private boolean fastPublisherSubscriber;
   private StreamingContainerContext containerContext;
@@ -230,9 +228,8 @@ public class StreamingContainer extends YarnContainerMain
         if (ctx.getValue(Context.DAGContext.BUFFER_SPOOLING)) {
           bufferServer.setSpoolStorage(new DiskStorage());
         }
-        SocketAddress bindAddr = bufferServer.run(eventloop);
-        logger.debug("Buffer server started: {}", bindAddr);
-        this.bufferServerAddress = NetUtils.getConnectAddress(((InetSocketAddress)bindAddr));
+        bufferServerAddress = NetUtils.getConnectAddress(bufferServer.run(eventloop));
+        logger.debug("Buffer server started: {}", bufferServerAddress);
       }
     } catch (IOException ex) {
       logger.warn("deploy request failed due to {}", ex);
@@ -616,11 +613,12 @@ public class StreamingContainer extends YarnContainerMain
       Token<?> token = iter.next();
       logger.debug("token: {}", token);
     }
+    String principal = containerContext.getValue(LogicalPlan.PRINCIPAL);
     String hdfsKeyTabFile = containerContext.getValue(LogicalPlan.KEY_TAB_FILE);
     while (!exitHeartbeatLoop) {
 
       if (UserGroupInformation.isSecurityEnabled() && System.currentTimeMillis() >= expiryTime && hdfsKeyTabFile != null) {
-        expiryTime = StramUserLogin.refreshTokens(tokenLifeTime, FileUtils.getTempDirectoryPath(), containerId, conf, hdfsKeyTabFile, credentials, null, false);
+        expiryTime = StramUserLogin.refreshTokens(tokenLifeTime, FileUtils.getTempDirectoryPath(), containerId, conf, principal, hdfsKeyTabFile, credentials, null, false);
       }
       synchronized (this.heartbeatTrigger) {
         try {
@@ -769,7 +767,15 @@ public class StreamingContainer extends YarnContainerMain
     }
 
     if (rsp.committedWindowId != lastCommittedWindowId) {
+
       lastCommittedWindowId = rsp.committedWindowId;
+
+      if (bufferServer != null) {
+        //  One Window before the committed Window is kept in the Buffer Server, for historical reasons.
+        // Jira for that issue is APEXCORE-479
+        bufferServer.purge(lastCommittedWindowId - 1);
+      }
+
       OperatorRequest nr = null;
       for (Entry<Integer, Node<?>> e : nodes.entrySet()) {
         final Thread thread = e.getValue().context.getThread();
@@ -894,14 +900,15 @@ public class StreamingContainer extends YarnContainerMain
 
       Context parentContext;
       if (ndi instanceof UnifierDeployInfo) {
-        OperatorContext unifiedOperatorContext = new OperatorContext(0, ((UnifierDeployInfo)ndi).operatorAttributes, containerContext);
+        OperatorContext unifiedOperatorContext = new OperatorContext(0, ndi.name,
+            ((UnifierDeployInfo)ndi).operatorAttributes, containerContext);
         parentContext = new PortContext(ndi.inputs.get(0).contextAttributes, unifiedOperatorContext);
         massageUnifierDeployInfo(ndi);
       } else {
         parentContext = containerContext;
       }
 
-      OperatorContext ctx = new OperatorContext(ndi.id, ndi.contextAttributes, parentContext);
+      OperatorContext ctx = new OperatorContext(ndi.id, ndi.name, ndi.contextAttributes, parentContext);
       ctx.attributes.put(OperatorContext.ACTIVATION_WINDOW_ID, ndi.checkpoint.windowId);
       logger.debug("Restoring operator {} to checkpoint {} stateless={}.", ndi.id, Codec.getStringWindowId(ndi.checkpoint.windowId), ctx.stateless);
       Node<?> node = Node.retrieveNode(backupAgent.load(ndi.id, ctx.stateless ? Stateless.WINDOW_ID : ndi.checkpoint.windowId), ctx, ndi.type);
@@ -1353,14 +1360,11 @@ public class StreamingContainer extends YarnContainerMain
   public synchronized void activate(final Map<Integer, OperatorDeployInfo> nodeMap, Map<String, ComponentContextPair<Stream, StreamContext>> newStreams)
   {
     for (ComponentContextPair<Stream, StreamContext> pair : newStreams.values()) {
-      if (!(pair.component instanceof BufferServerSubscriber)) {
-        activeStreams.put(pair.component, pair.context);
-        pair.component.activate(pair.context);
-        eventBus.publish(new StreamActivationEvent(pair));
-      }
+      activeStreams.put(pair.component, pair.context);
+      pair.component.activate(pair.context);
+      eventBus.publish(new StreamActivationEvent(pair));
     }
 
-    final CountDownLatch signal = new CountDownLatch(nodeMap.size());
     for (final OperatorDeployInfo ndi : nodeMap.values()) {
       /*
        * OiO nodes get activated with their primary nodes.
@@ -1400,10 +1404,6 @@ public class StreamingContainer extends YarnContainerMain
 
             currentdi = null;
 
-            for (int i = setOperators.size(); i-- > 0; ) {
-              signal.countDown();
-            }
-
             node.run(); /* this is a blocking call */
           } catch (Error error) {
             int[] operators;
@@ -1440,8 +1440,6 @@ public class StreamingContainer extends YarnContainerMain
                 failedNodes.add(ndi.id);
                 logger.error("Shutdown of operator {} failed due to an exception.", ndi, ex);
               }
-            } else {
-              signal.countDown();
             }
 
             List<Integer> oioNodeIdList = oioGroups.get(ndi.id);
@@ -1455,8 +1453,6 @@ public class StreamingContainer extends YarnContainerMain
                     failedNodes.add(oiodi.id);
                     logger.error("Shutdown of operator {} failed due to an exception.", oiodi, ex);
                   }
-                } else {
-                  signal.countDown();
                 }
               }
             }
@@ -1465,23 +1461,6 @@ public class StreamingContainer extends YarnContainerMain
       };
       node.context.setThread(thread);
       thread.start();
-    }
-
-    /**
-     * we need to make sure that before any of the operators gets the first message, it's activated.
-     */
-    try {
-      signal.await();
-    } catch (InterruptedException ex) {
-      logger.debug("Activation of operators interrupted.", ex);
-    }
-
-    for (ComponentContextPair<Stream, StreamContext> pair : newStreams.values()) {
-      if (pair.component instanceof BufferServerSubscriber) {
-        activeStreams.put(pair.component, pair.context);
-        pair.component.activate(pair.context);
-        eventBus.publish(new StreamActivationEvent(pair));
-      }
     }
 
     for (WindowGenerator wg : generators.values()) {
@@ -1614,7 +1593,7 @@ public class StreamingContainer extends YarnContainerMain
   private void handleChangeLoggersRequest(StramToNodeChangeLoggersRequest request)
   {
     logger.debug("handle change logger request");
-    DTLoggerFactory.getInstance().changeLoggersLevel(request.getTargetChanges());
+    LoggerUtil.changeLoggersLevel(request.getTargetChanges());
   }
 
   private final StreamCodec<Object> nonSerializingStreamCodec = new StreamCodec<Object>()
