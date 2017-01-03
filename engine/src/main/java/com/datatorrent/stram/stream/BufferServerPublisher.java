@@ -21,9 +21,6 @@ package com.datatorrent.stram.stream;
 import java.net.InetSocketAddress;
 import java.util.concurrent.atomic.AtomicLong;
 
-import org.apache.apex.engine.serde.GenericSerde;
-import org.apache.apex.engine.serde.SerializationBuffer;
-import org.apache.apex.engine.serde.WindowedBlockStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -39,7 +36,6 @@ import com.datatorrent.bufferserver.packet.ResetWindowTuple;
 import com.datatorrent.bufferserver.packet.WindowIdTuple;
 import com.datatorrent.bufferserver.util.Codec;
 import com.datatorrent.netlet.EventLoop;
-import com.datatorrent.netlet.util.Slice;
 import com.datatorrent.stram.codec.StatefulStreamCodec;
 import com.datatorrent.stram.codec.StatefulStreamCodec.DataStatePair;
 import com.datatorrent.stram.engine.ByteCounterStream;
@@ -66,9 +62,6 @@ public class BufferServerPublisher extends Publisher implements ByteCounterStrea
   private int count;
   private StatefulStreamCodec<Object> statefulSerde;
 
-  private GenericSerde<Object> genericSerde = GenericSerde.DEFAULT;
-  private SerializationBuffer serializationBuffer = new SerializationBuffer(new WindowedBlockStream());
-  
   public BufferServerPublisher(String sourceId, int queueCapacity)
   {
     super(sourceId, queueCapacity);
@@ -118,26 +111,6 @@ public class BufferServerPublisher extends Publisher implements ByteCounterStrea
           throw new UnsupportedOperationException("this data type is not handled in the stream");
       }
     } else {
-      if(genericSerde != null) {
-        genericSerde.serialize(payload, serializationBuffer);
-        Slice slice = serializationBuffer.toSlice();
-        array = PayloadTuple.getSerializedTuple(payload.hashCode(), slice);
-        
-        try {
-//          while (!write(slice.buffer, slice.offset, slice.length)) {
-//            sleep(5);
-//          }
-          while (!write(array)) {
-            sleep(5);
-          }
-          publishedByteCount.addAndGet(slice.length);
-        } catch (InterruptedException ie) {
-          throw new RuntimeException(ie);
-        }
-        serializationBuffer.getWindowedBlockStream().reset();
-        return;
-      }
-      
       if (statefulSerde == null) {
         array = PayloadTuple.getSerializedTuple(serde.getPartition(payload), serde.toByteArray(payload));
       } else {

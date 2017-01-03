@@ -24,7 +24,6 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.concurrent.atomic.AtomicLong;
 
-import org.apache.apex.engine.serde.GenericSerde;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -47,7 +46,6 @@ import com.datatorrent.stram.tuple.EndStreamTuple;
 import com.datatorrent.stram.tuple.EndWindowTuple;
 import com.datatorrent.stram.tuple.ResetWindowTuple;
 import com.datatorrent.stram.tuple.Tuple;
-import com.esotericsoftware.kryo.io.Input;
 
 /**
  * Implement tuple flow from buffer server to the node in a logical stream<p>
@@ -371,15 +369,9 @@ public class BufferServerSubscriber extends Subscriber implements ByteCounterStr
       return null;
     }
 
-    private GenericSerde<Object> genericSerde = GenericSerde.DEFAULT;
-    
     protected Object processPayload(com.datatorrent.bufferserver.packet.Tuple data)
     {
       Object o;
-      if(genericSerde != null) {
-        Slice slice = data.getData();
-        return genericSerde.deserialize(new Input(slice.buffer, slice.offset, slice.length));
-      }
       if (statefulSerde == null) {
         o = serde.fromByteArray(data.getData());
       } else {

@@ -168,7 +168,7 @@ public class WindowedBlockStream extends BlockStream implements WindowListener, 
       totalSize += dataSizeOfWindow(winId);
     }
     return totalSize;
-}
+  }
 
   protected long dataSizeOfWindow(long windowId)
   {
