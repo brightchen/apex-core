@@ -581,7 +581,7 @@ public class StreamingContainerManager implements PlanContext
     if (poolExecutor != null) {
       poolExecutor.shutdown();
     }
-    if(poolExecutor != null) {
+    if (poolExecutor != null) {
       poolExecutor.shutdown();
     }
   }
@@ -2489,7 +2489,7 @@ public class StreamingContainerManager implements PlanContext
     oi.currentWindowId = toWsWindowId(os.currentWindowId.get());
     if (os.lastHeartbeat != null) {
       oi.lastHeartbeat = os.lastHeartbeat.getGeneratedTms();
-    }    
+    }
     if (os.checkpointStats != null) {
       oi.checkpointTime = os.checkpointStats.checkpointTime;
       oi.checkpointStartTime = os.checkpointStats.checkpointStartTime;
