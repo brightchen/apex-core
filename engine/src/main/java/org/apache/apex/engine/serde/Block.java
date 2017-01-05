@@ -88,6 +88,13 @@ public class Block
     size += length;
   }
 
+  public Slice reserve(int length)
+  {
+    checkOrReallocateBuffer(length);
+    Slice slice = new Slice(buffer, size, length);
+    size += length;
+    return slice;
+  }
 
 
   /**

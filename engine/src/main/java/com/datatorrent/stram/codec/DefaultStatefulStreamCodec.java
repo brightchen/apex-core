@@ -111,7 +111,7 @@ public class DefaultStatefulStreamCodec<T> extends Kryo implements StatefulStrea
     }
   }
 
-  private boolean useOldImpl = true;
+  private boolean useOldImpl = false;
   @Override
   public DataStatePair toDataStatePair(T o)
   {
@@ -141,10 +141,14 @@ public class DefaultStatefulStreamCodec<T> extends Kryo implements StatefulStrea
     return pair;
   }
 
+  int count = 0;
   public DataStatePair toDataStatePairNew(T o)
   {
     DataStatePair pair = new DataStatePair();
-    serializationBuffer.reset();
+    if(++count > 10000) {
+      serializationBuffer.reset();
+      count = 0;
+    }
     writeClassAndObject(serializationBuffer, o);
     pair.data = serializationBuffer.toSlice();
 

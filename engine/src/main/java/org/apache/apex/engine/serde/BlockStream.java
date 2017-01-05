@@ -98,6 +98,27 @@ public class BlockStream extends OutputStream
     size += length;
   }
 
+  /**
+   * reserve the memory for future use. the reserve operation can happened before/after or in the middle serialization
+   * the implementation of reserve is kind like write but just don't need to copy of data
+   * @param length
+   * @return the Slice of the reserved memory. the length of the slice will be same as the required length
+   */
+  public Slice reserve(int length)
+  {
+    Slice slice;
+    //start with a block which at least can hold this data
+    currentBlock = getOrCreateCurrentBlock();
+    try {
+      slice = currentBlock.reserve(length);
+    } catch (Block.OutOfBlockBufferMemoryException e) {
+      reallocateBlock();
+      slice = currentBlock.reserve(length);
+    }
+    size += length;
+    return slice;
+  }
+
   private void reallocateBlock()
   {
     //use next block

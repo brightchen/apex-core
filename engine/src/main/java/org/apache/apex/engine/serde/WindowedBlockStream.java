@@ -151,9 +151,11 @@ public class WindowedBlockStream extends BlockStream implements WindowListener, 
   {
     super.reset();
 
-    //all blocks are free now except the current one
-    freeBlockIds.addAll(blocks.keySet());
-    freeBlockIds.remove(currentBlockIndex);
+    if (blocks.size() > 1) {
+      //all blocks are free now except the current one
+      freeBlockIds.addAll(blocks.keySet());
+      freeBlockIds.remove(currentBlockIndex);
+    }
   }
 
   /**

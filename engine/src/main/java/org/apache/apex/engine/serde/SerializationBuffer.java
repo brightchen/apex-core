@@ -18,6 +18,10 @@
  */
 package org.apache.apex.engine.serde;
 
+import java.io.IOException;
+
+import com.esotericsoftware.kryo.KryoException;
+import com.esotericsoftware.kryo.io.Input;
 import com.esotericsoftware.kryo.io.Output;
 
 import com.datatorrent.netlet.util.Slice;
@@ -59,7 +63,7 @@ public class SerializationBuffer extends Output implements WindowCompleteListene
    */
   public Slice toSlice()
   {
-    this.flush();
+//    this.flush();
     return windowedBlockStream.toSlice();
   }
 
@@ -125,4 +129,262 @@ public class SerializationBuffer extends Output implements WindowCompleteListene
   {
     return toSlice().toByteArray();
   }
+
+  /**
+   * following methods override the super class method to avoid use temporary buffer
+   */
+
+  /**
+   * This method was called by super class to make sure the buffer is enough.
+   * This class should not use temporary buffer.
+   */
+  @Override
+  protected boolean require (int required) throws KryoException
+  {
+    throw new KryoException("Not suppose to call this method.");
+  }
+
+  /** Writes a byte. */
+  @Override
+  public void write (int value) throws KryoException {
+    try {
+      outputStream.write(value);
+    } catch (IOException e) {
+      throw new KryoException(e);
+    }
+  }
+
+  /** Writes the bytes. Note the byte[] length is not written. */
+  @Override
+  public void write (byte[] bytes) throws KryoException {
+    if (bytes == null) throw new IllegalArgumentException("bytes cannot be null.");
+    try {
+      outputStream.write(bytes);
+    } catch (IOException e) {
+      throw new KryoException(e);
+    }
+  }
+
+  /** Writes the bytes. Note the byte[] length is not written. */
+  @Override
+  public void write (byte[] bytes, int offset, int length) throws KryoException {
+    try {
+      outputStream.write(bytes, offset, length);
+    } catch (IOException e) {
+      throw new KryoException(e);
+    }
+  }
+
+  // byte
+
+  @Override
+  public void writeByte (byte value) throws KryoException {
+    write (value);
+  }
+
+  @Override
+  public void writeByte (int value) throws KryoException {
+    write(value);
+  }
+
+  /** Writes the bytes. Note the byte[] length is not written. */
+  @Override
+  public void writeBytes (byte[] bytes) throws KryoException {
+    if (bytes == null) throw new IllegalArgumentException("bytes cannot be null.");
+    write(bytes, 0, bytes.length);
+  }
+
+  /** Writes the bytes. Note the byte[] length is not written. */
+  @Override
+  public void writeBytes (byte[] bytes, int offset, int count) throws KryoException {
+    write(bytes, offset, count);
+  }
+
+  // int
+
+  /** Writes a 4 byte int. Uses BIG_ENDIAN byte order. */
+  private byte[] intBytes = new byte[4];
+  @Override
+  public void writeInt (int value) throws KryoException {
+    intBytes[0] = (byte)(value >> 24);
+    intBytes[1] = (byte)(value >> 16);
+    intBytes[2] = (byte)(value >> 8);
+    intBytes[3] = (byte)value;
+    write(intBytes);
+  }
+
+  /** Writes a 1-5 byte int. It is guaranteed that a varible length encoding will be used.
+   *
+   * @param optimizePositive If true, small positive numbers will be more efficient (1 byte) and small negative numbers will be
+   *           inefficient (5 bytes). */
+  @Override
+  public int writeVarInt (int value, boolean optimizePositive) throws KryoException {
+    if (!optimizePositive) value = (value << 1) ^ (value >> 31);
+    if (value >>> 7 == 0) {
+      write(value);
+      return 1;
+    }
+    if (value >>> 14 == 0) {
+      write((value & 0x7F) | 0x80);
+      write(value >>> 7);
+      return 2;
+    }
+    if (value >>> 21 == 0) {
+      write((value & 0x7F) | 0x80);
+      write(value >>> 7 | 0x80);
+      write(value >>> 14);
+      return 3;
+    }
+    if (value >>> 28 == 0) {
+      write((value & 0x7F) | 0x80);
+      write(value >>> 7 | 0x80);
+      write(value >>> 14 | 0x80);
+      write(value >>> 21);
+      return 4;
+    }
+    write((value & 0x7F) | 0x80);
+    write(value >>> 7 | 0x80);
+    write(value >>> 14 | 0x80);
+    write(value >>> 21 | 0x80);
+    write(value >>> 28);
+    return 5;
+  }
+
+  // string
+
+  /** Writes the length and string, or null. Short strings are checked and if ASCII they are written more efficiently, else they
+   * are written as UTF8. If a string is known to be ASCII, {@link #writeAscii(String)} may be used. The string can be read using
+   * {@link Input#readString()} or {@link Input#readStringBuilder()}.
+   * @param value May be null. */
+  @Override
+  public void writeString (String value) throws KryoException {
+    if (value == null) {
+      writeByte(0x80); // 0 means null, bit 8 means UTF8.
+      return;
+    }
+    int charCount = value.length();
+    if (charCount == 0) {
+      writeByte(1 | 0x80); // 1 means empty string, bit 8 means UTF8.
+      return;
+    }
+    // Detect ASCII.
+    boolean ascii = false;
+    if (charCount > 1 && charCount < 64) {
+      ascii = true;
+      for (int i = 0; i < charCount; i++) {
+        int c = value.charAt(i);
+        if (c > 127) {
+          ascii = false;
+          break;
+        }
+      }
+    }
+    if (ascii) {
+      if (capacity - position < charCount)
+        writeAscii_slow(value, charCount);
+      else {
+        value.getBytes(0, charCount, buffer, position);
+        position += charCount;
+      }
+//      buffer[position - 1] |= 0x80;
+    } else {
+      writeUtf8Length(charCount + 1);
+      int charIndex = 0;
+      if (capacity - position >= charCount) {
+        // Try to write 8 bit chars.
+        byte[] buffer = this.buffer;
+        int position = this.position;
+        for (; charIndex < charCount; charIndex++) {
+          int c = value.charAt(charIndex);
+          if (c > 127) break;
+          buffer[position++] = (byte)c;
+        }
+        this.position = position;
+      }
+      if (charIndex < charCount) writeString_slow(value, charCount, charIndex);
+    }
+  }
+
+
+  /**
+   * write ascii, the last char | 0x80 to mark the end
+   * @param value
+   * @param charCount
+   * @throws KryoException
+   */
+  private void writeAscii_slow (String value, int charCount) throws KryoException {
+    Slice slice = reserve(charCount);
+    value.getBytes(0, charCount, slice.buffer, slice.offset);
+    slice.buffer[slice.offset + charCount -1] |= 0x80;
+  }
+
+  /** Writes the length of a string, which is a variable length encoded int except the first byte uses bit 8 to denote UTF8 and
+   * bit 7 to denote if another byte is present.
+   */
+  private void writeUtf8Length (int value) {
+    if (value >>> 6 == 0) {
+      write(value | 0x80); // Set bit 8.
+    } else if (value >>> 13 == 0) {
+      write(value | 0x40 | 0x80); // Set bit 7 and 8.
+      write(value >>> 6);
+    } else if (value >>> 20 == 0) {
+      write(value | 0x40 | 0x80); // Set bit 7 and 8.
+      write((value >>> 6) | 0x80); // Set bit 8.
+      write(value >>> 13);
+    } else if (value >>> 27 == 0) {
+      write(value | 0x40 | 0x80); // Set bit 7 and 8.
+      write((value >>> 6) | 0x80); // Set bit 8.
+      write((value >>> 13) | 0x80); // Set bit 8.
+      write(value >>> 20);
+    } else {
+      write(value | 0x40 | 0x80); // Set bit 7 and 8.
+      write((value >>> 6) | 0x80); // Set bit 8.
+      write((value >>> 13) | 0x80); // Set bit 8.
+      write((value >>> 20) | 0x80); // Set bit 8.
+      write(value >>> 27);
+    }
+  }
+
+
+  private void writeString_slow (CharSequence value, int charCount, int charIndex) {
+    //count serialized size
+    int requiredSize = 0;
+    for (; charIndex < charCount; charIndex++) {
+      int c = value.charAt(charIndex);
+      if (c <= 0x007F) {
+        requiredSize++;
+      } else if (c > 0x07FF) {
+        requiredSize += 3;
+      } else {
+        requiredSize += 2;
+      }
+    }
+
+    Slice slice = reserve(requiredSize);
+    int index = slice.offset;
+    for (; charIndex < charCount; charIndex++) {
+      int c = value.charAt(charIndex);
+      if (c <= 0x007F) {
+        slice.buffer[index++] = (byte)c;
+      } else if (c > 0x07FF) {
+        slice.buffer[index++] = (byte)(0xE0 | c >> 12 & 0x0F);
+        slice.buffer[index++] = (byte)(0x80 | c >> 6 & 0x3F);
+        slice.buffer[index++] = (byte)(0x80 | c & 0x3F);
+      } else {
+        slice.buffer[index++] = (byte)(0xC0 | c >> 6 & 0x1F);
+        slice.buffer[index++] = (byte)(0x80 | c & 0x3F);
+      }
+    }
+  }
+
+  /**
+   * reserve the memory for future use. the reserve operation can happened before/after or in the middle serialization
+   * @param length
+   * @return the Slice of the reserved memory. the length of the slice will be same as the required length
+   */
+  protected Slice reserve(int length)
+  {
+    return windowedBlockStream.reserve(length);
+  }
 }
+
