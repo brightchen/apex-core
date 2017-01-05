@@ -280,28 +280,10 @@ public class SerializationBuffer extends Output implements WindowCompleteListene
       }
     }
     if (ascii) {
-      if (capacity - position < charCount)
-        writeAscii_slow(value, charCount);
-      else {
-        value.getBytes(0, charCount, buffer, position);
-        position += charCount;
-      }
-//      buffer[position - 1] |= 0x80;
+        writeAscii(value, charCount);
     } else {
       writeUtf8Length(charCount + 1);
-      int charIndex = 0;
-      if (capacity - position >= charCount) {
-        // Try to write 8 bit chars.
-        byte[] buffer = this.buffer;
-        int position = this.position;
-        for (; charIndex < charCount; charIndex++) {
-          int c = value.charAt(charIndex);
-          if (c > 127) break;
-          buffer[position++] = (byte)c;
-        }
-        this.position = position;
-      }
-      if (charIndex < charCount) writeString_slow(value, charCount, charIndex);
+      writeString(value, charCount, 0);
     }
   }
 
@@ -312,7 +294,7 @@ public class SerializationBuffer extends Output implements WindowCompleteListene
    * @param charCount
    * @throws KryoException
    */
-  private void writeAscii_slow (String value, int charCount) throws KryoException {
+  private void writeAscii (String value, int charCount) throws KryoException {
     Slice slice = reserve(charCount);
     value.getBytes(0, charCount, slice.buffer, slice.offset);
     slice.buffer[slice.offset + charCount -1] |= 0x80;
@@ -346,11 +328,11 @@ public class SerializationBuffer extends Output implements WindowCompleteListene
   }
 
 
-  private void writeString_slow (CharSequence value, int charCount, int charIndex) {
+  private void writeString (CharSequence value, int charCount, final int charIndex) {
     //count serialized size
     int requiredSize = 0;
-    for (; charIndex < charCount; charIndex++) {
-      int c = value.charAt(charIndex);
+    for (int i = charIndex; i < charCount; i++) {
+      int c = value.charAt(i);
       if (c <= 0x007F) {
         requiredSize++;
       } else if (c > 0x07FF) {
@@ -362,8 +344,8 @@ public class SerializationBuffer extends Output implements WindowCompleteListene
 
     Slice slice = reserve(requiredSize);
     int index = slice.offset;
-    for (; charIndex < charCount; charIndex++) {
-      int c = value.charAt(charIndex);
+    for (int i = charIndex; i < charCount; i++) {
+      int c = value.charAt(i);
       if (c <= 0x007F) {
         slice.buffer[index++] = (byte)c;
       } else if (c > 0x07FF) {
