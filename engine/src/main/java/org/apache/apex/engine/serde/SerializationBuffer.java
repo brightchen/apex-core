@@ -43,6 +43,7 @@ public class SerializationBuffer extends Output implements WindowCompleteListene
 
   public SerializationBuffer(WindowedBlockStream windowedBlockStream)
   {
+    //windowedBlockStream in fact same as outputStream
     super(windowedBlockStream);
     this.windowedBlockStream = windowedBlockStream;
   }
@@ -90,8 +91,7 @@ public class SerializationBuffer extends Output implements WindowCompleteListene
 
   public void release()
   {
-    reset();
-    windowedBlockStream.reset();
+    windowedBlockStream.releaseAllFreeMemory();;
   }
 
   public WindowedBlockStream createWindowedBlockStream()
@@ -257,7 +257,8 @@ public class SerializationBuffer extends Output implements WindowCompleteListene
    * {@link Input#readString()} or {@link Input#readStringBuilder()}.
    * @param value May be null. */
   @Override
-  public void writeString (String value) throws KryoException {
+  public void writeString(String value) throws KryoException
+  {
     if (value == null) {
       writeByte(0x80); // 0 means null, bit 8 means UTF8.
       return;
@@ -280,10 +281,26 @@ public class SerializationBuffer extends Output implements WindowCompleteListene
       }
     }
     if (ascii) {
-        writeAscii(value, charCount);
+      writeAscii(value, charCount);
     } else {
       writeUtf8Length(charCount + 1);
-      writeString(value, charCount, 0);
+
+      //treat as ascii first
+      Slice slice = reserve(charCount);
+      int index = slice.offset;
+      //assign to buffer increase performance a lot
+      byte[] buffer = slice.buffer;
+      int charIndex = 0;
+      for (; charIndex < charCount; charIndex++) {
+        int c = value.charAt(charIndex);
+        if (c > 127) {
+          break;
+        }
+        buffer[index++] = (byte)c;
+      }
+      if (charCount > charIndex) {
+        writeString(value, charCount, charIndex);
+      }
     }
   }
 
@@ -344,17 +361,19 @@ public class SerializationBuffer extends Output implements WindowCompleteListene
 
     Slice slice = reserve(requiredSize);
     int index = slice.offset;
+    //assign to buffer increase performance a lot
+    byte[] buffer = slice.buffer;
     for (int i = charIndex; i < charCount; i++) {
       int c = value.charAt(i);
       if (c <= 0x007F) {
-        slice.buffer[index++] = (byte)c;
+        buffer[index++] = (byte)c;
       } else if (c > 0x07FF) {
-        slice.buffer[index++] = (byte)(0xE0 | c >> 12 & 0x0F);
-        slice.buffer[index++] = (byte)(0x80 | c >> 6 & 0x3F);
-        slice.buffer[index++] = (byte)(0x80 | c & 0x3F);
+        buffer[index++] = (byte)(0xE0 | c >> 12 & 0x0F);
+        buffer[index++] = (byte)(0x80 | c >> 6 & 0x3F);
+        buffer[index++] = (byte)(0x80 | c & 0x3F);
       } else {
-        slice.buffer[index++] = (byte)(0xC0 | c >> 6 & 0x1F);
-        slice.buffer[index++] = (byte)(0x80 | c & 0x3F);
+        buffer[index++] = (byte)(0xC0 | c >> 6 & 0x1F);
+        buffer[index++] = (byte)(0x80 | c & 0x3F);
       }
     }
   }
@@ -364,7 +383,7 @@ public class SerializationBuffer extends Output implements WindowCompleteListene
    * @param length
    * @return the Slice of the reserved memory. the length of the slice will be same as the required length
    */
-  protected Slice reserve(int length)
+  public Slice reserve(int length)
   {
     return windowedBlockStream.reserve(length);
   }

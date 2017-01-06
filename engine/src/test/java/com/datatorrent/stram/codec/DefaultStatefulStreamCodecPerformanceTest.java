@@ -8,18 +8,20 @@ import org.junit.Test;
 
 import org.apache.apex.engine.serde.SerializationBuffer;
 
+import com.esotericsoftware.kryo.io.Output;
+
 import com.datatorrent.netlet.util.Slice;
 import com.datatorrent.stram.codec.StatefulStreamCodec.DataStatePair;
-
 
 public class DefaultStatefulStreamCodecPerformanceTest
 {
   private DefaultStatefulStreamCodec codec = new DefaultStatefulStreamCodec();
 
+  private int loop = 1000;
   private int numOfValues = 10000;
   private String[] values = new String[numOfValues];
   private Random random = new Random();
-  private int valueLen = 1000;
+  private int valueLen = 100;
   private char[] chars;
 
   @Before
@@ -45,6 +47,7 @@ public class DefaultStatefulStreamCodecPerformanceTest
       }
       values[i] = new String(chars1);
     }
+    System.out.println("==================initted==================");
   }
 
   @Test
@@ -91,8 +94,10 @@ public class DefaultStatefulStreamCodecPerformanceTest
   public void testKryo()
   {
     long startTime = System.currentTimeMillis();
-    for (int i = 0; i < values.length; ++i) {
-      codec.toDataStatePairOld(values[i]);
+    for (int j = 0; j < loop; ++j) {
+      for (int i = 0; i < values.length; ++i) {
+        codec.toDataStatePairOld(values[i]);
+      }
     }
     long spent = System.currentTimeMillis() - startTime;
     System.out.println("spent times for kryo: " + spent);
@@ -102,8 +107,10 @@ public class DefaultStatefulStreamCodecPerformanceTest
   public void testSpecific()
   {
     long startTime = System.currentTimeMillis();
-    for (int i = 0; i < values.length; ++i) {
-      codec.toDataStatePairNew(values[i]);
+    for (int j = 0; j < loop; ++j) {
+      for (int i = 0; i < values.length; ++i) {
+        codec.toDataStatePairNew(values[i]);
+      }
     }
     long spent = System.currentTimeMillis() - startTime;
 
@@ -113,14 +120,21 @@ public class DefaultStatefulStreamCodecPerformanceTest
   /**
    * why this test case stucked?
    */
-  /***
-   * @Test public void testKryoWriteString() { Output output = new Output();
-   *       long startTime = System.currentTimeMillis(); for (int i = 0; i < 10;
-   *       ++i) { output.setPosition(0); output.writeString(data); }
-   *       output.close(); System.out.println(
-   *       "spent times for kryo write string: " + (System.currentTimeMillis() -
-   *       startTime)); }
-   */
+
+  @Test
+  public void testKryoWriteString()
+  {
+    Output output = new Output(10000);
+    long startTime = System.currentTimeMillis();
+    for (int j = 0; j < loop; ++j) {
+      for (int i = 0; i < values.length; ++i) {
+        output.setPosition(0);
+        output.writeString(values[i]);
+      }
+    }
+    output.close();
+    System.out.println("spent times for kryo write string: " + (System.currentTimeMillis() - startTime));
+  }
 
   @Test
   public void testSpecificWriteString()
@@ -128,12 +142,30 @@ public class DefaultStatefulStreamCodecPerformanceTest
     SerializationBuffer output = SerializationBuffer.READ_BUFFER;
     long startTime = System.currentTimeMillis();
     int count = 0;
-    for (int i = 0; i < values.length; ++i) {
-      if (count++ > 1000) {
-        output.reset();
+    for (int j = 0; j < loop; ++j) {
+      for (int i = 0; i < values.length; ++i) {
+        if (count++ > 1000) {
+          output.reset();
+          count = 0;
+        }
+        output.writeString(values[i]);
       }
-      output.writeString(values[i]);
     }
     System.out.println("spent times for specific write string: " + (System.currentTimeMillis() - startTime));
+  }
+
+  @Test
+  public void testReserve()
+  {
+    Random random = new Random();
+    SerializationBuffer output = SerializationBuffer.READ_BUFFER;
+    for (int i = 0; i < 0; ++i) {
+      for (int j = 0; j < 1000000000; ++j) {
+        output.reserve(random.nextInt(1000) + 1);
+        if (j % 10000 == 0) {
+          output.reset();
+        }
+      }
+    }
   }
 }
