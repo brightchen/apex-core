@@ -20,6 +20,7 @@ package org.apache.apex.engine.serde;
 
 import org.apache.hadoop.classification.InterfaceStability;
 
+import com.esotericsoftware.kryo.Kryo;
 import com.esotericsoftware.kryo.io.Input;
 import com.esotericsoftware.kryo.io.Output;
 
@@ -29,17 +30,42 @@ import com.esotericsoftware.kryo.io.Output;
  * @since 3.5.0
  */
 @InterfaceStability.Evolving
-public class StringSerde implements Serde<String>
+public class StringSerde extends Kryo implements Serde<String>
 {
+  private boolean needWriteClass = true;
+
+  public StringSerde()
+  {
+    this(true);
+  }
+
+  public StringSerde(boolean needWriteClass)
+  {
+    setNeedWriteClass(needWriteClass);
+  }
+
   @Override
   public void serialize(String string, Output output)
   {
-    output.writeString(string);
+    if (needWriteClass)
+      writeClassAndObject(output, string);
+    else
+      writeObject(output, string);
   }
 
   @Override
   public String deserialize(Input input)
   {
     return input.readString();
+  }
+
+  public boolean isNeedWriteClass()
+  {
+    return needWriteClass;
+  }
+
+  public void setNeedWriteClass(boolean needWriteClass)
+  {
+    this.needWriteClass = needWriteClass;
   }
 }

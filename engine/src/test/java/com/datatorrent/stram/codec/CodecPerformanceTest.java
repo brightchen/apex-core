@@ -6,22 +6,24 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import org.apache.apex.engine.serde.PartitionSerde;
 import org.apache.apex.engine.serde.SerializationBuffer;
 
 import com.esotericsoftware.kryo.io.Output;
 
+import com.datatorrent.bufferserver.packet.PayloadTuple;
 import com.datatorrent.netlet.util.Slice;
 import com.datatorrent.stram.codec.StatefulStreamCodec.DataStatePair;
 
-public class DefaultStatefulStreamCodecPerformanceTest
+public class CodecPerformanceTest
 {
   private DefaultStatefulStreamCodec codec = new DefaultStatefulStreamCodec();
 
-  private int loop = 1000;
+  private int loop = 100;
   private int numOfValues = 10000;
   private String[] values = new String[numOfValues];
   private Random random = new Random();
-  private int valueLen = 100;
+  private int valueLen = 1000;
   private char[] chars;
 
   @Before
@@ -51,7 +53,7 @@ public class DefaultStatefulStreamCodecPerformanceTest
   }
 
   @Test
-  public void testFunctionalCorrect()
+  public void testDataStateNewFunctional()
   {
     for (int i = 0; i < Math.min(values.length, 10000); ++i) {
       DataStatePair dp1 = codec.toDataStatePairOld(values[i]);
@@ -167,5 +169,60 @@ public class DefaultStatefulStreamCodecPerformanceTest
         }
       }
     }
+  }
+
+  @Test
+  public void testPartitionSerdeFunctional()
+  {
+    PartitionSerde serde = PartitionSerde.DEFAULT;
+    SerializationBuffer output = SerializationBuffer.READ_BUFFER;
+    output.reset();
+
+    for (int i = 0; i < Math.min(values.length, 1000); i++) {
+      int partition = codec.getPartition(values[i]);
+
+      @SuppressWarnings("unchecked")
+      DataStatePair dsp = codec.toDataStatePairOld(values[i]);
+      byte[] array = PayloadTuple.getSerializedTuple(partition, dsp.data);
+
+      Slice slice = serde.serialize(partition, values[i], output);
+      byte[] array1 = new byte[slice.length];
+      System.arraycopy(slice.buffer, slice.offset, array1, 0, array1.length);
+      Assert.assertArrayEquals(array, array1);
+    }
+  }
+
+  @Test
+  public void testPartitionSerde()
+  {
+    PartitionSerde serde = PartitionSerde.DEFAULT;
+    SerializationBuffer output = SerializationBuffer.READ_BUFFER;
+    output.reset();
+
+    long startTime = System.currentTimeMillis();
+    int count = 0;
+    for (int j = 0; j < loop; ++j) {
+      for (int i = 0; i < values.length; ++i) {
+        if (count++ > 1000) {
+          output.reset();
+          count = 0;
+        }
+        serde.serialize(i, values[i], output);
+      }
+    }
+    System.out.println("spent times for PartitionSerde: " + (System.currentTimeMillis() - startTime));
+  }
+
+  @Test
+  public void testDataStatePair()
+  {
+    long startTime = System.currentTimeMillis();
+    for (int j = 0; j < loop; ++j) {
+      for (int i = 0; i < values.length; ++i) {
+        DataStatePair dsp = codec.toDataStatePairOld(values[i]);
+        PayloadTuple.getSerializedTuple(i, dsp.data);
+      }
+    }
+    System.out.println("spent times for DataState: " + (System.currentTimeMillis() - startTime));
   }
 }
