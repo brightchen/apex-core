@@ -19,11 +19,11 @@ public class CodecPerformanceTest
 {
   private DefaultStatefulStreamCodec codec = new DefaultStatefulStreamCodec();
 
-  private int loop = 100;
-  private int numOfValues = 10000;
+  private int loop = 10;
+  private int numOfValues = 100000;
   private String[] values = new String[numOfValues];
   private Random random = new Random();
-  private int valueLen = 1000;
+  private int valueLen = 10000;
   private char[] chars;
 
   @Before

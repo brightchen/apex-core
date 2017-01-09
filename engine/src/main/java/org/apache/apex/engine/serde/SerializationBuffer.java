@@ -218,6 +218,38 @@ public class SerializationBuffer extends Output implements WindowCompleteListene
    * @param optimizePositive If true, small positive numbers will be more efficient (1 byte) and small negative numbers will be
    *           inefficient (5 bytes). */
   @Override
+//  public int writeVarInt (int value, boolean optimizePositive) throws KryoException {
+//    if (!optimizePositive) value = (value << 1) ^ (value >> 31);
+//    if (value >>> 7 == 0) {
+//      write(value);
+//      return 1;
+//    }
+//    if (value >>> 14 == 0) {
+//      write((value & 0x7F) | 0x80);
+//      write(value >>> 7);
+//      return 2;
+//    }
+//    if (value >>> 21 == 0) {
+//      write((value & 0x7F) | 0x80);
+//      write(value >>> 7 | 0x80);
+//      write(value >>> 14);
+//      return 3;
+//    }
+//    if (value >>> 28 == 0) {
+//      write((value & 0x7F) | 0x80);
+//      write(value >>> 7 | 0x80);
+//      write(value >>> 14 | 0x80);
+//      write(value >>> 21);
+//      return 4;
+//    }
+//    write((value & 0x7F) | 0x80);
+//    write(value >>> 7 | 0x80);
+//    write(value >>> 14 | 0x80);
+//    write(value >>> 21 | 0x80);
+//    write(value >>> 28);
+//    return 5;
+//  }
+
   public int writeVarInt (int value, boolean optimizePositive) throws KryoException {
     if (!optimizePositive) value = (value << 1) ^ (value >> 31);
     if (value >>> 7 == 0) {
@@ -225,28 +257,32 @@ public class SerializationBuffer extends Output implements WindowCompleteListene
       return 1;
     }
     if (value >>> 14 == 0) {
-      write((value & 0x7F) | 0x80);
-      write(value >>> 7);
+      Slice slice = this.reserve(2);
+      slice.buffer[slice.offset] = (byte)((value & 0x7F) | 0x80);
+      slice.buffer[slice.offset + 1] = (byte)(value >>> 7);
       return 2;
     }
     if (value >>> 21 == 0) {
-      write((value & 0x7F) | 0x80);
-      write(value >>> 7 | 0x80);
-      write(value >>> 14);
+      Slice slice = this.reserve(3);
+      slice.buffer[slice.offset] = (byte)((value & 0x7F) | 0x80);
+      slice.buffer[slice.offset + 1] = (byte)(value >>> 7 | 0x80);
+      slice.buffer[slice.offset + 2] = (byte)(value >>> 14);
       return 3;
     }
     if (value >>> 28 == 0) {
-      write((value & 0x7F) | 0x80);
-      write(value >>> 7 | 0x80);
-      write(value >>> 14 | 0x80);
-      write(value >>> 21);
+      Slice slice = this.reserve(4);
+      slice.buffer[slice.offset] = (byte)((value & 0x7F) | 0x80);
+      slice.buffer[slice.offset + 1] = (byte)(value >>> 7 | 0x80);
+      slice.buffer[slice.offset + 2] = (byte)(value >>> 14 | 0x80);
+      slice.buffer[slice.offset + 3] = (byte)(value >>> 21);
       return 4;
     }
-    write((value & 0x7F) | 0x80);
-    write(value >>> 7 | 0x80);
-    write(value >>> 14 | 0x80);
-    write(value >>> 21 | 0x80);
-    write(value >>> 28);
+    Slice slice = this.reserve(5);
+    slice.buffer[slice.offset] = (byte)((value & 0x7F) | 0x80);
+    slice.buffer[slice.offset + 1] = (byte)(value >>> 7 | 0x80);
+    slice.buffer[slice.offset + 2] = (byte)(value >>> 14 | 0x80);
+    slice.buffer[slice.offset + 3] = (byte)(value >>> 21 | 0x80);
+    slice.buffer[slice.offset + 4] = (byte)(value >>> 28);
     return 5;
   }
 
