@@ -283,19 +283,25 @@ public class CodecPerformanceTest
   public void testPartitionSerdeForSimpleTuple()
   {
     initTuples();
+
+    System.out.println("Test PartitionSerde for SimpleTuples...");
     PartitionSerde serde = new PartitionSerde();
     SerializationBuffer output = SerializationBuffer.READ_BUFFER;
     output.reset();
 
     long startTime = System.currentTimeMillis();
-    int count = 0;
+    long count = 0;
+    logRate(count);
     for (int j = 0; j < loop; ++j) {
       for (int i = 0; i < tuples.length; ++i) {
-        if (count++ > 1000) {
-          output.reset();
-          count = 0;
-        }
         serde.serialize(i, tuples[i], output);
+
+        if (++count % logPeriod == 0) {
+          logRate(count);
+        }
+        if (count % 1000 == 0) {
+          output.reset();
+        }
       }
     }
     System.out.println("spent times for PartitionSerde for SimpleTuples: " + (System.currentTimeMillis() - startTime));
@@ -305,11 +311,17 @@ public class CodecPerformanceTest
   public void testDataStatePairForSimpleTuple()
   {
     initTuples();
+    System.out.println("Test DataState for SimpleTuples...");
     long startTime = System.currentTimeMillis();
+    long count = 0;
+    logRate(count);
     for (int j = 0; j < loop; ++j) {
       for (int i = 0; i < tuples.length; ++i) {
         DataStatePair dsp = codec.toDataStatePairOld(tuples[i]);
         PayloadTuple.getSerializedTuple(i, dsp.data);
+        if (++count % logPeriod == 0) {
+          logRate(count);
+        }
       }
     }
     System.out.println("spent times for DataState for SimpleTuples: " + (System.currentTimeMillis() - startTime));

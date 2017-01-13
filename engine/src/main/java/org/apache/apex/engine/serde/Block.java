@@ -71,8 +71,12 @@ public class Block
 
   public boolean write(byte data)
   {
-    if (!checkOrReallocateBuffer(1)) {
-      return false;
+    if (size + 1 > capacity) {
+      if (exposedSlices) {
+        return false;
+      } else {
+        reallocateBuffer(1);
+      }
     }
     buffer[size++] = data;
     return true;
@@ -85,8 +89,12 @@ public class Block
 
   public boolean write(byte[] data, final int offset, final int length)
   {
-    if(!checkOrReallocateBuffer(length)) {
-      return false;
+    if (size + length > capacity) {
+      if (exposedSlices) {
+        return false;
+      } else {
+        reallocateBuffer(length);
+      }
     }
 
     System.arraycopy(data, offset, buffer, size, length);
@@ -96,9 +104,14 @@ public class Block
 
   public Slice reserve(int length)
   {
-    if(!checkOrReallocateBuffer(length)) {
-      return null;
+    if (size + length > capacity) {
+      if (exposedSlices) {
+        return null;
+      } else {
+        reallocateBuffer(length);
+      }
     }
+
     Slice slice = new Slice(buffer, size, length);
     size += length;
     return slice;
@@ -110,18 +123,10 @@ public class Block
    *
    * @param length
    */
-  private boolean checkOrReallocateBuffer(int length)
+  private boolean reallocateBuffer(int length)
   {
-    if (size + length <= capacity) {
-      return true;
-    }
-
-    if (exposedSlices) {
-      return false;
-    }
-
     //calculate the new capacity
-    capacity = (size + length) * 2;
+    capacity = size > length ? size * 2 : length * 2;
 
     byte[] oldBuffer = buffer;
     buffer = new byte[capacity];
