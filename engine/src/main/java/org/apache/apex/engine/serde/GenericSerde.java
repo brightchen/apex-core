@@ -44,7 +44,7 @@ public class GenericSerde<T> implements Serde<T>
   public static final GenericSerde DEFAULT = new GenericSerde();
   private transient Kryo kryo = new Kryo();
 
-  private Class<? extends T> clazz;
+  private final Class<? extends T> clazz;
 
   @SuppressWarnings("rawtypes")
   private Map<Class, Serde> typeToSerde = Maps.newHashMap();
@@ -83,14 +83,16 @@ public class GenericSerde<T> implements Serde<T>
   public void serialize(T object, Output output)
   {
     Class type = object.getClass();
-    if (clazz == null) {
-      clazz = type;
+    Serde serde = null;
+    if (clazz == type) {
+      serde = getDefaultSerde(type);
     }
-    Serde serde = getDefaultSerde(type);
     if (serde != null) {
       serde.serialize(object, output);
       return;
     }
+
+    //delegate to kryo
     if (clazz == null) {
       kryo.writeClassAndObject(output, object);
     } else {
@@ -101,7 +103,7 @@ public class GenericSerde<T> implements Serde<T>
   @Override
   public T deserialize(Input input)
   {
-    Serde serde = getDefaultSerde(clazz);
+    Serde serde = clazz == null ? null : getDefaultSerde(clazz);
     if (serde != null) {
       return (T)serde.deserialize(input);
     }

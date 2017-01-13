@@ -55,6 +55,8 @@ public class BlockStream extends OutputStream
   public BlockStream(int blockCapacity)
   {
     this.blockCapacity = blockCapacity;
+    currentBlockIndex = 0;
+    currentBlock = getOrCreateCurrentBlock();
   }
 
   @Override
@@ -66,7 +68,6 @@ public class BlockStream extends OutputStream
   @Override
   public void write(int b)
   {
-    currentBlock = getOrCreateCurrentBlock();
     try {
       currentBlock.write((byte)b);
     } catch (Block.OutOfBlockBufferMemoryException e) {
@@ -88,7 +89,6 @@ public class BlockStream extends OutputStream
   public void write(byte[] data, final int offset, final int length)
   {
     //start with a block which at least can hold this data
-    currentBlock = getOrCreateCurrentBlock();
     try {
       currentBlock.write(data, offset, length);
     } catch (Block.OutOfBlockBufferMemoryException e) {
@@ -108,7 +108,6 @@ public class BlockStream extends OutputStream
   {
     Slice slice;
     //start with a block which at least can hold this data
-    currentBlock = getOrCreateCurrentBlock();
     try {
       slice = currentBlock.reserve(length);
     } catch (Block.OutOfBlockBufferMemoryException e) {
@@ -177,7 +176,7 @@ public class BlockStream extends OutputStream
    */
   public Slice toSlice()
   {
-    return blocks.get(currentBlockIndex).toSlice();
+    return currentBlock.toSlice();
   }
 
   /**
@@ -185,11 +184,12 @@ public class BlockStream extends OutputStream
    */
   public void reset()
   {
-    currentBlockIndex = 0;
     size = 0;
     for (Block block : blocks.values()) {
       block.reset();
     }
+    currentBlockIndex = 0;
+    this.currentBlock = this.getOrCreateCurrentBlock();
   }
 
   public void release()

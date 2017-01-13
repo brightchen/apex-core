@@ -48,7 +48,8 @@ public class WindowedBlockStream extends BlockStream implements WindowListener, 
   // max block index; must be >= 0
   protected int maxBlockIndex = 0;
 
-  protected long currentWindowId;
+  //init current window id to invalid number
+  protected long currentWindowId = -1;
 
   protected BlockReleaseStrategy releaseStrategy = new DefaultBlockReleaseStrategy();
 
@@ -100,17 +101,26 @@ public class WindowedBlockStream extends BlockStream implements WindowListener, 
       currentBlockIndex = freeBlockIds.iterator().next();
       freeBlockIds.remove(currentBlockIndex);
       currentBlock = this.blocks.get(currentBlockIndex);
+      if (!currentBlock.isFresh()) {
+        throw new RuntimeException("Assigned non fresh block.");
+      }
     } else {
       currentBlockIndex = ++maxBlockIndex;
       currentBlock = getOrCreateCurrentBlock();
+      if (!currentBlock.isFresh()) {
+        throw new RuntimeException("Assigned non fresh block.");
+      }
     }
-    windowToBlockIds.put(currentWindowId, currentBlockIndex);
+    if (currentWindowId >= 0) {
+      windowToBlockIds.put(currentWindowId, currentBlockIndex);
+    }
     return previousBlock;
   }
 
   @Override
   public void endWindow()
   {
+    windowToBlockIds.removeAll(currentBlock);
     releaseMemory();
   }
 
@@ -151,6 +161,7 @@ public class WindowedBlockStream extends BlockStream implements WindowListener, 
   {
     super.reset();
 
+    windowToBlockIds.clear();
     if (blocks.size() > 1) {
       //all blocks are free now except the current one
       freeBlockIds.addAll(blocks.keySet());

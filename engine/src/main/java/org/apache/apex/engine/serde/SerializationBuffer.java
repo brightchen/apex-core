@@ -64,7 +64,6 @@ public class SerializationBuffer extends Output implements WindowCompleteListene
    */
   public Slice toSlice()
   {
-//    this.flush();
     return windowedBlockStream.toSlice();
   }
 
@@ -136,17 +135,20 @@ public class SerializationBuffer extends Output implements WindowCompleteListene
 
   /**
    * This method was called by super class to make sure the buffer is enough.
-   * This class should not use temporary buffer.
    */
   @Override
-  protected boolean require (int required) throws KryoException
+  protected boolean require(int required) throws KryoException
   {
-    throw new KryoException("Not suppose to call this method.");
+    Slice slice = this.windowedBlockStream.reserve(required);
+    buffer = slice.buffer;
+    position = slice.offset;
+    return true;
   }
 
   /** Writes a byte. */
   @Override
-  public void write (int value) throws KryoException {
+  public void write(int value) throws KryoException
+  {
     try {
       outputStream.write(value);
     } catch (IOException e) {
@@ -156,8 +158,10 @@ public class SerializationBuffer extends Output implements WindowCompleteListene
 
   /** Writes the bytes. Note the byte[] length is not written. */
   @Override
-  public void write (byte[] bytes) throws KryoException {
-    if (bytes == null) throw new IllegalArgumentException("bytes cannot be null.");
+  public void write(byte[] bytes) throws KryoException
+  {
+    if (bytes == null)
+      throw new IllegalArgumentException("bytes cannot be null.");
     try {
       outputStream.write(bytes);
     } catch (IOException e) {
@@ -167,7 +171,8 @@ public class SerializationBuffer extends Output implements WindowCompleteListene
 
   /** Writes the bytes. Note the byte[] length is not written. */
   @Override
-  public void write (byte[] bytes, int offset, int length) throws KryoException {
+  public void write(byte[] bytes, int offset, int length) throws KryoException
+  {
     try {
       outputStream.write(bytes, offset, length);
     } catch (IOException e) {
@@ -178,25 +183,30 @@ public class SerializationBuffer extends Output implements WindowCompleteListene
   // byte
 
   @Override
-  public void writeByte (byte value) throws KryoException {
-    write (value);
+  public void writeByte(byte value) throws KryoException
+  {
+    write(value);
   }
 
   @Override
-  public void writeByte (int value) throws KryoException {
+  public void writeByte(int value) throws KryoException
+  {
     write(value);
   }
 
   /** Writes the bytes. Note the byte[] length is not written. */
   @Override
-  public void writeBytes (byte[] bytes) throws KryoException {
-    if (bytes == null) throw new IllegalArgumentException("bytes cannot be null.");
+  public void writeBytes(byte[] bytes) throws KryoException
+  {
+    if (bytes == null)
+      throw new IllegalArgumentException("bytes cannot be null.");
     write(bytes, 0, bytes.length);
   }
 
   /** Writes the bytes. Note the byte[] length is not written. */
   @Override
-  public void writeBytes (byte[] bytes, int offset, int count) throws KryoException {
+  public void writeBytes(byte[] bytes, int offset, int count) throws KryoException
+  {
     write(bytes, offset, count);
   }
 
@@ -204,94 +214,88 @@ public class SerializationBuffer extends Output implements WindowCompleteListene
 
   /** Writes a 4 byte int. Uses BIG_ENDIAN byte order. */
   private byte[] intBytes = new byte[4];
+
   @Override
-  public void writeInt (int value) throws KryoException {
-    intBytes[0] = (byte)(value >> 24);
-    intBytes[1] = (byte)(value >> 16);
-    intBytes[2] = (byte)(value >> 8);
-    intBytes[3] = (byte)value;
-    write(intBytes);
+  public void writeInt(int value) throws KryoException
+  {
+    Slice slice = this.reserve(4);
+    int offset = slice.offset;
+    byte[] buffer = slice.buffer;
+    buffer[offset++] = (byte)(value >> 24);
+    buffer[offset++] = (byte)(value >> 16);
+    buffer[offset++] = (byte)(value >> 8);
+    buffer[offset] = (byte)value;
   }
 
-  /** Writes a 1-5 byte int. It is guaranteed that a varible length encoding will be used.
+  /**
+   * Writes a 1-5 byte int. It is guaranteed that a varible length encoding will
+   * be used.
    *
-   * @param optimizePositive If true, small positive numbers will be more efficient (1 byte) and small negative numbers will be
-   *           inefficient (5 bytes). */
+   * @param optimizePositive
+   *          If true, small positive numbers will be more efficient (1 byte)
+   *          and small negative numbers will be inefficient (5 bytes).
+   */
   @Override
-//  public int writeVarInt (int value, boolean optimizePositive) throws KryoException {
-//    if (!optimizePositive) value = (value << 1) ^ (value >> 31);
-//    if (value >>> 7 == 0) {
-//      write(value);
-//      return 1;
-//    }
-//    if (value >>> 14 == 0) {
-//      write((value & 0x7F) | 0x80);
-//      write(value >>> 7);
-//      return 2;
-//    }
-//    if (value >>> 21 == 0) {
-//      write((value & 0x7F) | 0x80);
-//      write(value >>> 7 | 0x80);
-//      write(value >>> 14);
-//      return 3;
-//    }
-//    if (value >>> 28 == 0) {
-//      write((value & 0x7F) | 0x80);
-//      write(value >>> 7 | 0x80);
-//      write(value >>> 14 | 0x80);
-//      write(value >>> 21);
-//      return 4;
-//    }
-//    write((value & 0x7F) | 0x80);
-//    write(value >>> 7 | 0x80);
-//    write(value >>> 14 | 0x80);
-//    write(value >>> 21 | 0x80);
-//    write(value >>> 28);
-//    return 5;
-//  }
-
-  public int writeVarInt (int value, boolean optimizePositive) throws KryoException {
-    if (!optimizePositive) value = (value << 1) ^ (value >> 31);
+  public int writeVarInt(int value, boolean optimizePositive) throws KryoException
+  {
+    if (!optimizePositive)
+      value = (value << 1) ^ (value >> 31);
     if (value >>> 7 == 0) {
       write(value);
       return 1;
     }
+    byte[] buffer;
+    int offset;
     if (value >>> 14 == 0) {
       Slice slice = this.reserve(2);
-      slice.buffer[slice.offset] = (byte)((value & 0x7F) | 0x80);
-      slice.buffer[slice.offset + 1] = (byte)(value >>> 7);
+      buffer = slice.buffer;
+      offset = slice.offset;
+      buffer[offset++] = (byte)((value & 0x7F) | 0x80);
+      buffer[slice.offset] = (byte)(value >>> 7);
       return 2;
     }
     if (value >>> 21 == 0) {
       Slice slice = this.reserve(3);
-      slice.buffer[slice.offset] = (byte)((value & 0x7F) | 0x80);
-      slice.buffer[slice.offset + 1] = (byte)(value >>> 7 | 0x80);
-      slice.buffer[slice.offset + 2] = (byte)(value >>> 14);
+      buffer = slice.buffer;
+      offset = slice.offset;
+      buffer[offset++] = (byte)((value & 0x7F) | 0x80);
+      buffer[offset++] = (byte)(value >>> 7 | 0x80);
+      buffer[offset] = (byte)(value >>> 14);
       return 3;
     }
     if (value >>> 28 == 0) {
       Slice slice = this.reserve(4);
-      slice.buffer[slice.offset] = (byte)((value & 0x7F) | 0x80);
-      slice.buffer[slice.offset + 1] = (byte)(value >>> 7 | 0x80);
-      slice.buffer[slice.offset + 2] = (byte)(value >>> 14 | 0x80);
-      slice.buffer[slice.offset + 3] = (byte)(value >>> 21);
+      buffer = slice.buffer;
+      offset = slice.offset;
+      buffer[offset++] = (byte)((value & 0x7F) | 0x80);
+      buffer[offset++] = (byte)(value >>> 7 | 0x80);
+      buffer[offset++] = (byte)(value >>> 14 | 0x80);
+      buffer[offset] = (byte)(value >>> 21);
       return 4;
     }
     Slice slice = this.reserve(5);
-    slice.buffer[slice.offset] = (byte)((value & 0x7F) | 0x80);
-    slice.buffer[slice.offset + 1] = (byte)(value >>> 7 | 0x80);
-    slice.buffer[slice.offset + 2] = (byte)(value >>> 14 | 0x80);
-    slice.buffer[slice.offset + 3] = (byte)(value >>> 21 | 0x80);
-    slice.buffer[slice.offset + 4] = (byte)(value >>> 28);
+    buffer = slice.buffer;
+    offset = slice.offset;
+    buffer[offset++] = (byte)((value & 0x7F) | 0x80);
+    buffer[offset++] = (byte)(value >>> 7 | 0x80);
+    buffer[offset++] = (byte)(value >>> 14 | 0x80);
+    buffer[offset++] = (byte)(value >>> 21 | 0x80);
+    buffer[offset] = (byte)(value >>> 28);
     return 5;
   }
 
   // string
 
-  /** Writes the length and string, or null. Short strings are checked and if ASCII they are written more efficiently, else they
-   * are written as UTF8. If a string is known to be ASCII, {@link #writeAscii(String)} may be used. The string can be read using
-   * {@link Input#readString()} or {@link Input#readStringBuilder()}.
-   * @param value May be null. */
+  /**
+   * Writes the length and string, or null. Short strings are checked and if
+   * ASCII they are written more efficiently, else they are written as UTF8. If
+   * a string is known to be ASCII, {@link #writeAscii(String)} may be used. The
+   * string can be read using {@link Input#readString()} or
+   * {@link Input#readStringBuilder()}.
+   *
+   * @param value
+   *          May be null.
+   */
   @Override
   public void writeString(String value) throws KryoException
   {
@@ -340,48 +344,73 @@ public class SerializationBuffer extends Output implements WindowCompleteListene
     }
   }
 
-
   /**
    * write ascii, the last char | 0x80 to mark the end
+   *
    * @param value
    * @param charCount
    * @throws KryoException
    */
-  private void writeAscii (String value, int charCount) throws KryoException {
+  private void writeAscii(String value, int charCount) throws KryoException
+  {
     Slice slice = reserve(charCount);
     value.getBytes(0, charCount, slice.buffer, slice.offset);
-    slice.buffer[slice.offset + charCount -1] |= 0x80;
+    slice.buffer[slice.offset + charCount - 1] |= 0x80;
   }
 
-  /** Writes the length of a string, which is a variable length encoded int except the first byte uses bit 8 to denote UTF8 and
-   * bit 7 to denote if another byte is present.
+  /**
+   * Writes the length of a string, which is a variable length encoded int
+   * except the first byte uses bit 8 to denote UTF8 and bit 7 to denote if
+   * another byte is present.
    */
-  private void writeUtf8Length (int value) {
+  private void writeUtf8Length(int value)
+  {
     if (value >>> 6 == 0) {
       write(value | 0x80); // Set bit 8.
-    } else if (value >>> 13 == 0) {
-      write(value | 0x40 | 0x80); // Set bit 7 and 8.
-      write(value >>> 6);
-    } else if (value >>> 20 == 0) {
-      write(value | 0x40 | 0x80); // Set bit 7 and 8.
-      write((value >>> 6) | 0x80); // Set bit 8.
-      write(value >>> 13);
-    } else if (value >>> 27 == 0) {
-      write(value | 0x40 | 0x80); // Set bit 7 and 8.
-      write((value >>> 6) | 0x80); // Set bit 8.
-      write((value >>> 13) | 0x80); // Set bit 8.
-      write(value >>> 20);
-    } else {
-      write(value | 0x40 | 0x80); // Set bit 7 and 8.
-      write((value >>> 6) | 0x80); // Set bit 8.
-      write((value >>> 13) | 0x80); // Set bit 8.
-      write((value >>> 20) | 0x80); // Set bit 8.
-      write(value >>> 27);
+      return;
     }
+    byte[] buffer;
+    int offset;
+    if (value >>> 13 == 0) {
+      Slice slice = reserve(2);
+      buffer = slice.buffer;
+      offset = slice.offset;
+      buffer[offset++] = (byte)(value | 0x40 | 0x80); // Set bit 7 and 8.
+      buffer[offset] = (byte)(value >>> 6);
+      return;
+    }
+    if (value >>> 20 == 0) {
+      Slice slice = reserve(3);
+      buffer = slice.buffer;
+      offset = slice.offset;
+      buffer[offset++] = (byte)(value | 0x40 | 0x80); // Set bit 7 and 8.
+      buffer[offset++] = (byte)((value >>> 6) | 0x80); // Set bit 8.
+      buffer[offset] = (byte)(value >>> 13);
+      return;
+    }
+    if (value >>> 27 == 0) {
+      Slice slice = reserve(4);
+      buffer = slice.buffer;
+      offset = slice.offset;
+      buffer[offset++] = (byte)(value | 0x40 | 0x80); // Set bit 7 and 8.
+      buffer[offset++] = (byte)((value >>> 6) | 0x80); // Set bit 8.
+      buffer[offset++] = (byte)((value >>> 13) | 0x80); // Set bit 8.
+      buffer[offset] = (byte)(value >>> 20);
+      return;
+    }
+
+    Slice slice = reserve(5);
+    buffer = slice.buffer;
+    offset = slice.offset;
+    buffer[offset++] = (byte)(value | 0x40 | 0x80); // Set bit 7 and 8.
+    buffer[offset++] = (byte)((value >>> 6) | 0x80); // Set bit 8.
+    buffer[offset++] = (byte)((value >>> 13) | 0x80); // Set bit 8.
+    buffer[offset++] = (byte)((value >>> 20) | 0x80); // Set bit 8.
+    buffer[offset] = (byte)(value >>> 27);
   }
 
-
-  private void writeString (CharSequence value, int charCount, final int charIndex) {
+  private void writeString(CharSequence value, int charCount, final int charIndex)
+  {
     //count serialized size
     int requiredSize = 0;
     for (int i = charIndex; i < charCount; i++) {
@@ -396,28 +425,31 @@ public class SerializationBuffer extends Output implements WindowCompleteListene
     }
 
     Slice slice = reserve(requiredSize);
-    int index = slice.offset;
+    int offset = slice.offset;
     //assign to buffer increase performance a lot
     byte[] buffer = slice.buffer;
     for (int i = charIndex; i < charCount; i++) {
       int c = value.charAt(i);
       if (c <= 0x007F) {
-        buffer[index++] = (byte)c;
+        buffer[offset++] = (byte)c;
       } else if (c > 0x07FF) {
-        buffer[index++] = (byte)(0xE0 | c >> 12 & 0x0F);
-        buffer[index++] = (byte)(0x80 | c >> 6 & 0x3F);
-        buffer[index++] = (byte)(0x80 | c & 0x3F);
+        buffer[offset++] = (byte)(0xE0 | c >> 12 & 0x0F);
+        buffer[offset++] = (byte)(0x80 | c >> 6 & 0x3F);
+        buffer[offset++] = (byte)(0x80 | c & 0x3F);
       } else {
-        buffer[index++] = (byte)(0xC0 | c >> 6 & 0x1F);
-        buffer[index++] = (byte)(0x80 | c & 0x3F);
+        buffer[offset++] = (byte)(0xC0 | c >> 6 & 0x1F);
+        buffer[offset++] = (byte)(0x80 | c & 0x3F);
       }
     }
   }
 
   /**
-   * reserve the memory for future use. the reserve operation can happened before/after or in the middle serialization
+   * reserve the memory for future use. the reserve operation can happened
+   * before/after or in the middle serialization
+   *
    * @param length
-   * @return the Slice of the reserved memory. the length of the slice will be same as the required length
+   * @return the Slice of the reserved memory. the length of the slice will be
+   *         same as the required length
    */
   public Slice reserve(int length)
   {
