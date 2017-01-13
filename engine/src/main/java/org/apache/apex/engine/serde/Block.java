@@ -69,28 +69,36 @@ public class Block
     this.capacity = capacity;
   }
 
-  public void write(byte data)
+  public boolean write(byte data)
   {
-    checkOrReallocateBuffer(1);
+    if (!checkOrReallocateBuffer(1)) {
+      return false;
+    }
     buffer[size++] = data;
+    return true;
   }
 
-  public void write(byte[] data)
+  public boolean write(byte[] data)
   {
-    write(data, 0, data.length);
+    return write(data, 0, data.length);
   }
 
-  public void write(byte[] data, final int offset, final int length)
+  public boolean write(byte[] data, final int offset, final int length)
   {
-    checkOrReallocateBuffer(length);
+    if(!checkOrReallocateBuffer(length)) {
+      return false;
+    }
 
     System.arraycopy(data, offset, buffer, size, length);
     size += length;
+    return true;
   }
 
   public Slice reserve(int length)
   {
-    checkOrReallocateBuffer(length);
+    if(!checkOrReallocateBuffer(length)) {
+      return null;
+    }
     Slice slice = new Slice(buffer, size, length);
     size += length;
     return slice;
@@ -102,14 +110,14 @@ public class Block
    *
    * @param length
    */
-  private void checkOrReallocateBuffer(int length) throws OutOfBlockBufferMemoryException
+  private boolean checkOrReallocateBuffer(int length)
   {
     if (size + length <= capacity) {
-      return;
+      return true;
     }
 
     if (exposedSlices) {
-      throw new OutOfBlockBufferMemoryException();
+      return false;
     }
 
     //calculate the new capacity
@@ -125,6 +133,7 @@ public class Block
     if (size > 0) {
       System.arraycopy(oldBuffer, 0, buffer, 0, size);
     }
+    return true;
   }
 
   /**

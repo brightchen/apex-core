@@ -68,9 +68,7 @@ public class BlockStream extends OutputStream
   @Override
   public void write(int b)
   {
-    try {
-      currentBlock.write((byte)b);
-    } catch (Block.OutOfBlockBufferMemoryException e) {
+    if (!currentBlock.write((byte)b)) {
       reallocateBlock();
       currentBlock.write((byte)b);
     }
@@ -89,9 +87,7 @@ public class BlockStream extends OutputStream
   public void write(byte[] data, final int offset, final int length)
   {
     //start with a block which at least can hold this data
-    try {
-      currentBlock.write(data, offset, length);
-    } catch (Block.OutOfBlockBufferMemoryException e) {
+    if (!currentBlock.write(data, offset, length)) {
       reallocateBlock();
       currentBlock.write(data, offset, length);
     }
@@ -106,11 +102,8 @@ public class BlockStream extends OutputStream
    */
   public Slice reserve(int length)
   {
-    Slice slice;
-    //start with a block which at least can hold this data
-    try {
-      slice = currentBlock.reserve(length);
-    } catch (Block.OutOfBlockBufferMemoryException e) {
+    Slice slice = currentBlock.reserve(length);
+    if (slice == null) {
       reallocateBlock();
       slice = currentBlock.reserve(length);
     }
