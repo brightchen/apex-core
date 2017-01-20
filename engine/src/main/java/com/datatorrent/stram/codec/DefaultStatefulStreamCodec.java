@@ -111,14 +111,8 @@ public class DefaultStatefulStreamCodec<T> extends Kryo implements StatefulStrea
     }
   }
 
-  private boolean useOldImpl = false;
   @Override
   public DataStatePair toDataStatePair(T o)
-  {
-    return useOldImpl ? toDataStatePairOld(o) : toDataStatePairNew(o);
-  }
-
-  public DataStatePair toDataStatePairOld(T o)
   {
     DataStatePair pair = new DataStatePair();
     data.setPosition(0);
@@ -141,28 +135,28 @@ public class DefaultStatefulStreamCodec<T> extends Kryo implements StatefulStrea
     return pair;
   }
 
-  int count = 0;
-  public DataStatePair toDataStatePairNew(T o)
-  {
-    DataStatePair pair = new DataStatePair();
-    if(++count > 10000) {
-      serializationBuffer.reset();
-      count = 0;
-    }
-    writeClassAndObject(serializationBuffer, o);
-    pair.data = serializationBuffer.toSlice();
-
-    if (!pairs.isEmpty()) {
-      for (ClassIdPair cip : pairs) {
-        writeClassAndObject(serializationBuffer, cip);
-      }
-      pairs.clear();
-
-      pair.state = serializationBuffer.toSlice();
-    }
-
-    return pair;
-  }
+//  int count = 0;
+//  public DataStatePair toDataStatePairNew(T o)
+//  {
+//    DataStatePair pair = new DataStatePair();
+//    if(++count > 10000) {
+//      serializationBuffer.reset();
+//      count = 0;
+//    }
+//    writeClassAndObject(serializationBuffer, o);
+//    pair.data = serializationBuffer.toSlice();
+//
+//    if (!pairs.isEmpty()) {
+//      for (ClassIdPair cip : pairs) {
+//        writeClassAndObject(serializationBuffer, cip);
+//      }
+//      pairs.clear();
+//
+//      pair.state = serializationBuffer.toSlice();
+//    }
+//
+//    return pair;
+//  }
 
   @Override
   public int getPartition(T o)

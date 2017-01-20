@@ -23,7 +23,7 @@ public class CodecPerformanceTest
   private int numOfValues = 1000;
   private String[] values = new String[numOfValues];
   private Random random = new Random();
-  private int valueLen = 10000;
+  private int valueLen = 10;
   private char[] chars;
 
   @Before
@@ -52,15 +52,6 @@ public class CodecPerformanceTest
     System.out.println("==================initted==================");
   }
 
-  @Test
-  public void testDataStateNewFunctional()
-  {
-    for (int i = 0; i < Math.min(values.length, 10000); ++i) {
-      DataStatePair dp1 = codec.toDataStatePairOld(values[i]);
-      DataStatePair dp2 = codec.toDataStatePairNew(values[i]);
-      Assert.assertTrue("Not equal: " + i, equals(dp1, dp2));
-    }
-  }
 
   protected boolean equals(DataStatePair dp1, DataStatePair dp2)
   {
@@ -92,32 +83,6 @@ public class CodecPerformanceTest
     return true;
   }
 
-  @Test
-  public void testKryo()
-  {
-    long startTime = System.currentTimeMillis();
-    for (int j = 0; j < loop; ++j) {
-      for (int i = 0; i < values.length; ++i) {
-        codec.toDataStatePairOld(values[i]);
-      }
-    }
-    long spent = System.currentTimeMillis() - startTime;
-    System.out.println("spent times for kryo: " + spent);
-  }
-
-  @Test
-  public void testSpecific()
-  {
-    long startTime = System.currentTimeMillis();
-    for (int j = 0; j < loop; ++j) {
-      for (int i = 0; i < values.length; ++i) {
-        codec.toDataStatePairNew(values[i]);
-      }
-    }
-    long spent = System.currentTimeMillis() - startTime;
-
-    System.out.println("spent times for specific: " + spent);
-  }
 
   /**
    * why this test case stucked?
@@ -167,7 +132,7 @@ public class CodecPerformanceTest
       int partition = codec.getPartition(values[i]);
 
       @SuppressWarnings("unchecked")
-      DataStatePair dsp = codec.toDataStatePairOld(values[i]);
+      DataStatePair dsp = codec.toDataStatePair(values[i]);
       byte[] array = PayloadTuple.getSerializedTuple(partition, dsp.data);
 
       Slice slice = serde.serialize(partition, values[i], output);
@@ -205,7 +170,7 @@ public class CodecPerformanceTest
     long startTime = System.currentTimeMillis();
     for (int j = 0; j < loop; ++j) {
       for (int i = 0; i < maxIntValue; ++i) {
-        DataStatePair dsp = codec.toDataStatePairOld(i);
+        DataStatePair dsp = codec.toDataStatePair(i);
         PayloadTuple.getSerializedTuple(i, dsp.data);
       }
     }
@@ -245,7 +210,7 @@ public class CodecPerformanceTest
     logRate(count);
     for (int j = 0; j < loop; ++j) {
       for (int i = 0; i < values.length; ++i) {
-        DataStatePair dsp = codec.toDataStatePairOld(values[i]);
+        DataStatePair dsp = codec.toDataStatePair(values[i]);
         PayloadTuple.getSerializedTuple(i, dsp.data);
         if (++count % logPeriod == 0) {
           logRate(count);
@@ -317,7 +282,7 @@ public class CodecPerformanceTest
     logRate(count);
     for (int j = 0; j < loop; ++j) {
       for (int i = 0; i < tuples.length; ++i) {
-        DataStatePair dsp = codec.toDataStatePairOld(tuples[i]);
+        DataStatePair dsp = codec.toDataStatePair(tuples[i]);
         PayloadTuple.getSerializedTuple(i, dsp.data);
         if (++count % logPeriod == 0) {
           logRate(count);
