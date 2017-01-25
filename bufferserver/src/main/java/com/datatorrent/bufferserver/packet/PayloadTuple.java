@@ -57,7 +57,19 @@ public class PayloadTuple extends Tuple
   @Override
   public Slice getData()
   {
+    try {
     return new Slice(buffer, offset + 5, length - 5);
+    } catch(Exception e) {
+    System.out.println("======Invalid message=========; buffer = " + buffer + "; offset = " + offset + "; length: " + length);
+    System.out.println("data: " + new Slice(buffer, offset, 5) + "; full data: " + new Slice(buffer, 0, offset + length + 10));
+    try {
+      Thread.sleep(1000);
+    } catch (InterruptedException e1) {
+      e1.printStackTrace();
+    }
+    System.exit(1);
+    return null;
+    }
   }
 
   @Override

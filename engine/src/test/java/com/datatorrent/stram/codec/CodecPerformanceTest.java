@@ -19,12 +19,13 @@ public class CodecPerformanceTest
 {
   private DefaultStatefulStreamCodec codec = new DefaultStatefulStreamCodec();
 
-  private int loop = 10000000;
+  protected int loop = 10000000;
   private int numOfValues = 1000;
-  private String[] values = new String[numOfValues];
+  protected String[] values = new String[numOfValues];
   private Random random = new Random();
-  private int valueLen = 10;
+  private int valueLen = 100;
   private char[] chars;
+  protected final int logPeriod = 3000000;
 
   @Before
   public void initValues()
@@ -177,7 +178,6 @@ public class CodecPerformanceTest
     System.out.println("spent times for DataState for int: " + (System.currentTimeMillis() - startTime));
   }
 
-  private final int logPeriod = 300000;
   @Test
   public void testPartitionSerdeForString()
   {

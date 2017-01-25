@@ -102,7 +102,7 @@ public class BufferServerSubscriber extends Subscriber implements ByteCounterStr
   }
 
   @Override
-  public void onMessage(byte[] buffer, int offset, int length)
+  public synchronized void onMessage(byte[] buffer, int offset, int length)
   {
     Slice f;
     if (freeFragments.isEmpty()) {
@@ -268,7 +268,7 @@ public class BufferServerSubscriber extends Subscriber implements ByteCounterStr
     }
 
     @Override
-    public Tuple sweep()
+    public synchronized Tuple sweep()
     {
       final int size = size();
       if (size > 0) {
@@ -355,6 +355,7 @@ public class BufferServerSubscriber extends Subscriber implements ByteCounterStr
               throw new IllegalArgumentException("Unhandled Message Type " + data.getType());
           }
 
+          System.out.println("skip: " + skipObject + "; object: " + o);
           freeFragments.offer(fm);
           if (skipObject) {
             skipObject = false;
