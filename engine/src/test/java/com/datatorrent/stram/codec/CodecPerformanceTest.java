@@ -3,8 +3,9 @@ package com.datatorrent.stram.codec;
 import java.util.Random;
 
 import org.junit.Assert;
-import org.junit.Before;
 import org.junit.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import org.apache.apex.engine.serde.PartitionSerde;
 import org.apache.apex.engine.serde.SerializationBuffer;
@@ -17,21 +18,28 @@ import com.datatorrent.stram.codec.StatefulStreamCodec.DataStatePair;
 
 public class CodecPerformanceTest
 {
+  private static final Logger logger = LoggerFactory.getLogger(CodecPerformanceTest.class);
+
   private DefaultStatefulStreamCodec codec = new DefaultStatefulStreamCodec();
 
-  protected int loop = 10000000;
-  private int numOfValues = 1000;
-  protected String[] values = new String[numOfValues];
+  protected int loop = 1;
+  private int numOfValues = 1000000;
+  protected static String[] values = null;
+
   private Random random = new Random();
-  private int valueLen = 100;
-  private char[] chars;
+  private int valueLen = 1000;
+
   protected final int logPeriod = 3000000;
 
-  @Before
   public void initValues()
   {
+    if(values != null) {
+      return;
+    }
+    values = new String[numOfValues];
+
     //init chars
-    chars = new char[26 * 2 + 10];
+    char[] chars = new char[26 * 2 + 10];
     int i = 0;
     for (; i < 26; ++i) {
       chars[i] = (char)('A' + i);
@@ -50,9 +58,9 @@ public class CodecPerformanceTest
       }
       values[i] = new String(chars1);
     }
-    System.out.println("==================initted==================");
-  }
 
+    logger.info("initValues() done.");
+  }
 
   protected boolean equals(DataStatePair dp1, DataStatePair dp2)
   {
@@ -101,13 +109,14 @@ public class CodecPerformanceTest
       }
     }
     output.close();
-    System.out.println("spent times for kryo write string: " + (System.currentTimeMillis() - startTime));
+    logger.info("spent times for kryo write string: {}", System.currentTimeMillis() - startTime);
   }
 
   @Test
   public void testSpecificWriteString()
   {
     SerializationBuffer output = SerializationBuffer.READ_BUFFER;
+    output.reset();
     long startTime = System.currentTimeMillis();
     int count = 0;
     for (int j = 0; j < loop; ++j) {
@@ -119,12 +128,68 @@ public class CodecPerformanceTest
         output.writeString(values[i]);
       }
     }
-    System.out.println("spent times for specific write string: " + (System.currentTimeMillis() - startTime));
+    logger.info("spent times for specific write string: {}", System.currentTimeMillis() - startTime);
   }
 
   @Test
+  public void testCompareForInt()
+  {
+    coolDown();
+    testPartitionSerdeForInt();
+    coolDown();
+    testDataStatePairForInt();
+  }
+
+  private final int maxIntValue = 100000;
+  @Test
+  public void testPartitionSerdeForInt()
+  {
+    PartitionSerde serde = new PartitionSerde();
+    SerializationBuffer output = SerializationBuffer.READ_BUFFER;
+    output.reset();
+
+    long startTime = System.currentTimeMillis();
+    int count = 0;
+    for (int j = 0; j < loop; ++j) {
+      for (int i = 0; i < maxIntValue; ++i) {
+        if (count++ > 10000) {
+          output.reset();
+          count = 0;
+        }
+        serde.serialize(i, i, output);
+      }
+    }
+    logger.info("spent times for PartitionSerde for int: {}", System.currentTimeMillis() - startTime);
+  }
+
+  @Test
+  public void testDataStatePairForInt()
+  {
+    long startTime = System.currentTimeMillis();
+    for (int j = 0; j < loop; ++j) {
+      for (int i = 0; i < maxIntValue; ++i) {
+        DataStatePair dsp = codec.toDataStatePair(i);
+        PayloadTuple.getSerializedTuple(i, dsp.data);
+      }
+    }
+    logger.info("spent times for DataState for int: {}", System.currentTimeMillis() - startTime);
+  }
+
+  @Test
+  public void testCompareForString()
+  {
+    testPartitionSerdeFunctional();
+    coolDown();
+    testDataStatePairForString();
+    coolDown();
+    testPartitionSerdeForString();
+
+  }
+
+
   public void testPartitionSerdeFunctional()
   {
+    initValues();
     PartitionSerde serde = new PartitionSerde();
     SerializationBuffer output = SerializationBuffer.READ_BUFFER;
     output.reset();
@@ -143,50 +208,17 @@ public class CodecPerformanceTest
     }
   }
 
-  private final int maxIntValue = 10000;
-  @Test
-  public void testPartitionSerdeForInt()
-  {
-    PartitionSerde serde = new PartitionSerde();
-    SerializationBuffer output = SerializationBuffer.READ_BUFFER;
-    output.reset();
-
-    long startTime = System.currentTimeMillis();
-    int count = 0;
-    for (int j = 0; j < loop; ++j) {
-      for (int i = 0; i < maxIntValue; ++i) {
-        if (count++ > 1000) {
-          output.reset();
-          count = 0;
-        }
-        serde.serialize(i, i, output);
-      }
-    }
-    System.out.println("spent times for PartitionSerde for int: " + (System.currentTimeMillis() - startTime));
-  }
-
-  @Test
-  public void testDataStatePairForInt()
-  {
-    long startTime = System.currentTimeMillis();
-    for (int j = 0; j < loop; ++j) {
-      for (int i = 0; i < maxIntValue; ++i) {
-        DataStatePair dsp = codec.toDataStatePair(i);
-        PayloadTuple.getSerializedTuple(i, dsp.data);
-      }
-    }
-    System.out.println("spent times for DataState for int: " + (System.currentTimeMillis() - startTime));
-  }
-
   @Test
   public void testPartitionSerdeForString()
   {
+    initValues();
     PartitionSerde serde = new PartitionSerde();
     SerializationBuffer output = SerializationBuffer.READ_BUFFER;
     output.reset();
 
     long startTime = System.currentTimeMillis();
     long count = 0;
+    resetLogRate();
     logRate(count);
     for (int j = 0; j < loop; ++j) {
       for (int i = 0; i < values.length; ++i) {
@@ -199,14 +231,16 @@ public class CodecPerformanceTest
         }
       }
     }
-    System.out.println("spent times for PartitionSerde for string: " + (System.currentTimeMillis() - startTime));
+    logger.info("spent times for PartitionSerde for string: {}", System.currentTimeMillis() - startTime);
   }
 
   @Test
   public void testDataStatePairForString()
   {
+    initValues();
     long startTime = System.currentTimeMillis();
     long count = 0;
+    resetLogRate();
     logRate(count);
     for (int j = 0; j < loop; ++j) {
       for (int i = 0; i < values.length; ++i) {
@@ -217,7 +251,17 @@ public class CodecPerformanceTest
         }
       }
     }
-    System.out.println("spent times for DataState for string: " + (System.currentTimeMillis() - startTime));
+    logger.info("spent times for DataState for string: {}", System.currentTimeMillis() - startTime);
+  }
+
+
+  @Test
+  public void testCompareForSimpleTuple()
+  {
+    coolDown();
+    testPartitionSerdeForSimpleTuple();
+    coolDown();
+    testDataStatePairForSimpleTuple();
   }
 
   static class SimpleTuple
@@ -238,18 +282,19 @@ public class CodecPerformanceTest
     if (tuples != null) {
       return;
     }
+    initValues();
     tuples = new SimpleTuple[numOfValues];
     for (int i = 0; i < tuples.length; ++i) {
       tuples[i] = new SimpleTuple(i % 100, values[i]);
     }
   }
 
-  @Test
   public void testPartitionSerdeForSimpleTuple()
   {
     initTuples();
+    resetLogRate();
 
-    System.out.println("Test PartitionSerde for SimpleTuples...");
+    logger.info("Test PartitionSerde for SimpleTuples...");
     PartitionSerde serde = new PartitionSerde();
     SerializationBuffer output = SerializationBuffer.READ_BUFFER;
     output.reset();
@@ -269,14 +314,14 @@ public class CodecPerformanceTest
         }
       }
     }
-    System.out.println("spent times for PartitionSerde for SimpleTuples: " + (System.currentTimeMillis() - startTime));
+    logger.info("spent times for PartitionSerde for SimpleTuples: {}", System.currentTimeMillis() - startTime);
   }
 
-  @Test
   public void testDataStatePairForSimpleTuple()
   {
     initTuples();
-    System.out.println("Test DataState for SimpleTuples...");
+    resetLogRate();
+
     long startTime = System.currentTimeMillis();
     long count = 0;
     logRate(count);
@@ -289,7 +334,7 @@ public class CodecPerformanceTest
         }
       }
     }
-    System.out.println("spent times for DataState for SimpleTuples: " + (System.currentTimeMillis() - startTime));
+    logger.info("spent times for DataState for SimpleTuples: {}", System.currentTimeMillis() - startTime);
   }
 
   @Test
@@ -298,7 +343,7 @@ public class CodecPerformanceTest
     Random random = new Random();
     SerializationBuffer output = SerializationBuffer.READ_BUFFER;
     for (int i = 0; i < 1000; ++i) {
-      for (int j = 0; j < 1000000000; ++j) {
+      for (int j = 0; j < 10000; ++j) {
         output.reserve(random.nextInt(1000) + 1);
         if (j % 10000 == 0) {
           output.reset();
@@ -307,20 +352,41 @@ public class CodecPerformanceTest
     }
   }
 
+  /**
+   * Cool Down to make sure following test case run with fair condition
+   */
+  private static void coolDown()
+  {
+    try {
+      Thread.sleep(2000);
+    } catch (InterruptedException e) {
+      e.printStackTrace();
+    }
+  }
+
   private long beginTime = 0;
   private long lastLogTime = 0;
   private long lastCount = 0;
+
+  protected void resetLogRate()
+  {
+    beginTime = 0;
+    lastLogTime = 0;
+    lastCount = 0;
+  }
+
   protected void logRate(long count)
   {
     long now = System.currentTimeMillis();
-    if(lastLogTime == 0) {
+    if (lastLogTime == 0) {
       lastLogTime = now;
     }
-    if(beginTime == 0) {
+    if (beginTime == 0) {
       beginTime = now;
     }
-    if(now > lastLogTime) {
-      System.out.println("Time: " + (now - lastLogTime) + "; period rate: " + (count - lastCount) / (now - lastLogTime) + "; total rate: " + count / (now - beginTime));
+    if (now > lastLogTime) {
+      logger.info("Time: " + (now - lastLogTime) + "; period rate: " + (count - lastCount) / (now - lastLogTime)
+          + "; total rate: " + count / (now - beginTime));
       lastLogTime = now;
       lastCount = count;
     }

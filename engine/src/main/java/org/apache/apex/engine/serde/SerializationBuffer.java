@@ -18,8 +18,6 @@
  */
 package org.apache.apex.engine.serde;
 
-import java.io.IOException;
-
 import com.esotericsoftware.kryo.KryoException;
 import com.esotericsoftware.kryo.io.Input;
 import com.esotericsoftware.kryo.io.Output;
@@ -149,35 +147,24 @@ public class SerializationBuffer extends Output implements WindowCompleteListene
   @Override
   public void write(int value) throws KryoException
   {
-    try {
-      outputStream.write(value);
-    } catch (IOException e) {
-      throw new KryoException(e);
-    }
+    windowedBlockStream.write(value);
   }
 
   /** Writes the bytes. Note the byte[] length is not written. */
   @Override
   public void write(byte[] bytes) throws KryoException
   {
-    if (bytes == null)
+    if (bytes == null) {
       throw new IllegalArgumentException("bytes cannot be null.");
-    try {
-      outputStream.write(bytes);
-    } catch (IOException e) {
-      throw new KryoException(e);
     }
+    windowedBlockStream.write(bytes);
   }
 
   /** Writes the bytes. Note the byte[] length is not written. */
   @Override
   public void write(byte[] bytes, int offset, int length) throws KryoException
   {
-    try {
-      outputStream.write(bytes, offset, length);
-    } catch (IOException e) {
-      throw new KryoException(e);
-    }
+    windowedBlockStream.write(bytes, offset, length);
   }
 
   // byte
@@ -198,8 +185,9 @@ public class SerializationBuffer extends Output implements WindowCompleteListene
   @Override
   public void writeBytes(byte[] bytes) throws KryoException
   {
-    if (bytes == null)
+    if (bytes == null) {
       throw new IllegalArgumentException("bytes cannot be null.");
+    }
     write(bytes, 0, bytes.length);
   }
 
@@ -238,8 +226,9 @@ public class SerializationBuffer extends Output implements WindowCompleteListene
   @Override
   public int writeVarInt(int value, boolean optimizePositive) throws KryoException
   {
-    if (!optimizePositive)
+    if (!optimizePositive) {
       value = (value << 1) ^ (value >> 31);
+    }
     if (value >>> 7 == 0) {
       write(value);
       return 1;

@@ -2,6 +2,8 @@ package org.apache.apex.engine.serde;
 
 import org.junit.Assert;
 import org.junit.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.esotericsoftware.kryo.KryoException;
 import com.esotericsoftware.kryo.io.Output;
@@ -9,15 +11,18 @@ import com.esotericsoftware.kryo.io.Output;
 
 public class SerializationBufferTest
 {
+  private static final Logger logger = LoggerFactory.getLogger(SerializationBufferTest.class);
+
   @Test
   public void testWriteVarIntPerformance()
   {
     SerializationBuffer output = SerializationBuffer.READ_BUFFER;
+    output.reset();
     long beginTime = System.currentTimeMillis();
-    for(int i=0; i<10000000; ++i) {
+    for (int i = 0; i < 10000000; ++i) {
       output.writeVarInt(i, true);
     }
-    System.out.println("Spent time on writeVarInt: " + (System.currentTimeMillis() - beginTime));
+    logger.info("Spent time on writeVarInt: {}", System.currentTimeMillis() - beginTime);
   }
 
   @Test

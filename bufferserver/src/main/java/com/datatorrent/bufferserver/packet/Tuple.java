@@ -46,16 +46,11 @@ public abstract class Tuple
     this.length = length;
   }
 
-  static int tupleCount = 0;
   public static Tuple getTuple(byte[] buffer, int offset, int length)
   {
     if (buffer == null) {
       logger.debug("found null buffer!");
     }
-    tupleCount++;
-    System.out.println("recv: count: " + tupleCount + "; buffer: " + buffer + "; offset = " + offset + "; length: " + length + "; data: " + new Slice(buffer, offset, length));
-
-    //System.out.println("recv: " + tupleCount + "data: " + new Slice(buffer, offset, length));
     switch (MessageType.valueOf(buffer[offset])) {
       case NO_MESSAGE:
         return new NoMessageTuple(buffer, offset, length);

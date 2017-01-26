@@ -47,10 +47,11 @@ public class StringSerde extends Kryo implements Serde<String>
   @Override
   public void serialize(String string, Output output)
   {
-    if (needWriteClass)
+    if (needWriteClass) {
       writeClassAndObject(output, string);
-    else
+    } else {
       writeObject(output, string);
+    }
   }
 
   @Override
