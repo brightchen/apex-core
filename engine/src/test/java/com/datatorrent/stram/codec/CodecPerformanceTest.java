@@ -10,8 +10,6 @@ import org.slf4j.LoggerFactory;
 import org.apache.apex.engine.serde.PartitionSerde;
 import org.apache.apex.engine.serde.SerializationBuffer;
 
-import com.esotericsoftware.kryo.io.Output;
-
 import com.datatorrent.bufferserver.packet.PayloadTuple;
 import com.datatorrent.netlet.util.Slice;
 import com.datatorrent.stram.codec.StatefulStreamCodec.DataStatePair;
@@ -92,55 +90,17 @@ public class CodecPerformanceTest
     return true;
   }
 
-
-  /**
-   * why this test case stucked?
-   */
-
-  @Test
-  public void testKryoWriteString()
-  {
-    Output output = new Output(10000);
-    long startTime = System.currentTimeMillis();
-    for (int j = 0; j < loop; ++j) {
-      for (int i = 0; i < values.length; ++i) {
-        output.setPosition(0);
-        output.writeString(values[i]);
-      }
-    }
-    output.close();
-    logger.info("spent times for kryo write string: {}", System.currentTimeMillis() - startTime);
-  }
-
-  @Test
-  public void testSpecificWriteString()
-  {
-    SerializationBuffer output = SerializationBuffer.READ_BUFFER;
-    output.reset();
-    long startTime = System.currentTimeMillis();
-    int count = 0;
-    for (int j = 0; j < loop; ++j) {
-      for (int i = 0; i < values.length; ++i) {
-        if (count++ > 1000) {
-          output.reset();
-          count = 0;
-        }
-        output.writeString(values[i]);
-      }
-    }
-    logger.info("spent times for specific write string: {}", System.currentTimeMillis() - startTime);
-  }
-
-  @Test
-  public void testCompareForInt()
-  {
-    coolDown();
-    testPartitionSerdeForInt();
-    coolDown();
-    testDataStatePairForInt();
-  }
+//  @Test
+//  public void testCompareForInt()
+//  {
+//    coolDown();
+//    testPartitionSerdeForInt();
+//    coolDown();
+//    testDataStatePairForInt();
+//  }
 
   private final int maxIntValue = 100000;
+
   @Test
   public void testPartitionSerdeForInt()
   {
@@ -175,18 +135,17 @@ public class CodecPerformanceTest
     logger.info("spent times for DataState for int: {}", System.currentTimeMillis() - startTime);
   }
 
+//  @Test
+//  public void testCompareForString()
+//  {
+//    testPartitionSerdeFunctional();
+//    coolDown();
+//    testDataStatePairForString();
+//    coolDown();
+//    testPartitionSerdeForString();
+//  }
+
   @Test
-  public void testCompareForString()
-  {
-    testPartitionSerdeFunctional();
-    coolDown();
-    testDataStatePairForString();
-    coolDown();
-    testPartitionSerdeForString();
-
-  }
-
-
   public void testPartitionSerdeFunctional()
   {
     initValues();
@@ -255,14 +214,14 @@ public class CodecPerformanceTest
   }
 
 
-  @Test
-  public void testCompareForSimpleTuple()
-  {
-    coolDown();
-    testPartitionSerdeForSimpleTuple();
-    coolDown();
-    testDataStatePairForSimpleTuple();
-  }
+//  @Test
+//  public void testCompareForSimpleTuple()
+//  {
+//    coolDown();
+//    testPartitionSerdeForSimpleTuple();
+//    coolDown();
+//    testDataStatePairForSimpleTuple();
+//  }
 
   static class SimpleTuple
   {
@@ -285,10 +244,11 @@ public class CodecPerformanceTest
     initValues();
     tuples = new SimpleTuple[numOfValues];
     for (int i = 0; i < tuples.length; ++i) {
-      tuples[i] = new SimpleTuple(i % 100, values[i]);
+      tuples[i] = new SimpleTuple(i, values[i]);
     }
   }
 
+  @Test
   public void testPartitionSerdeForSimpleTuple()
   {
     initTuples();
@@ -317,6 +277,7 @@ public class CodecPerformanceTest
     logger.info("spent times for PartitionSerde for SimpleTuples: {}", System.currentTimeMillis() - startTime);
   }
 
+  @Test
   public void testDataStatePairForSimpleTuple()
   {
     initTuples();
@@ -337,20 +298,6 @@ public class CodecPerformanceTest
     logger.info("spent times for DataState for SimpleTuples: {}", System.currentTimeMillis() - startTime);
   }
 
-  @Test
-  public void testReserve()
-  {
-    Random random = new Random();
-    SerializationBuffer output = SerializationBuffer.READ_BUFFER;
-    for (int i = 0; i < 1000; ++i) {
-      for (int j = 0; j < 10000; ++j) {
-        output.reserve(random.nextInt(1000) + 1);
-        if (j % 10000 == 0) {
-          output.reset();
-        }
-      }
-    }
-  }
 
   /**
    * Cool Down to make sure following test case run with fair condition
