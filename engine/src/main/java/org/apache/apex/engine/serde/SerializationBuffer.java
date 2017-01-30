@@ -24,36 +24,36 @@ import com.esotericsoftware.kryo.io.Output;
 
 import com.datatorrent.netlet.util.Slice;
 
-public class SerializationBuffer extends Output implements WindowCompleteListener, WindowListener
+public class SerializationBuffer extends Output
 {
   /*
    * Singleton read buffer for serialization
    */
-  public static final SerializationBuffer READ_BUFFER = new SerializationBuffer(new WindowedBlockStream());
+  public static final SerializationBuffer READ_BUFFER = new SerializationBuffer(new BlockStream());
 
-  private WindowedBlockStream windowedBlockStream;
+  private BlockStream blockStream;
 
   @SuppressWarnings("unused")
   private SerializationBuffer()
   {
-    this(new WindowedBlockStream());
+    this(new BlockStream());
   }
 
-  public SerializationBuffer(WindowedBlockStream windowedBlockStream)
+  public SerializationBuffer(BlockStream blockStream)
   {
     //windowedBlockStream in fact same as outputStream
-    super(windowedBlockStream);
-    this.windowedBlockStream = windowedBlockStream;
+    super(blockStream);
+    this.blockStream = blockStream;
   }
 
   public long size()
   {
-    return windowedBlockStream.size();
+    return blockStream.size();
   }
 
   public long capacity()
   {
-    return windowedBlockStream.capacity();
+    return blockStream.capacity();
   }
 
   /**
@@ -62,7 +62,7 @@ public class SerializationBuffer extends Output implements WindowCompleteListene
    */
   public Slice toSlice()
   {
-    return windowedBlockStream.toSlice();
+    return blockStream.toSlice();
   }
 
   /**
@@ -70,57 +70,25 @@ public class SerializationBuffer extends Output implements WindowCompleteListene
    */
   public void reset()
   {
-    windowedBlockStream.reset();
+    blockStream.reset();
   }
 
-
-  @Override
-  public void beginWindow(long windowId)
-  {
-    windowedBlockStream.beginWindow(windowId);
-  }
-
-  @Override
-  public void endWindow()
-  {
-    windowedBlockStream.endWindow();
-  }
 
   public void release()
   {
-    windowedBlockStream.releaseAllFreeMemory();;
+    blockStream.release();
   }
 
-  public WindowedBlockStream createWindowedBlockStream()
+  public BlockStream getBlockStream()
   {
-    return new WindowedBlockStream();
+    return blockStream;
   }
 
-  public WindowedBlockStream createWindowedBlockStream(int capacity)
+  public void setBlockStream(BlockStream blockStream)
   {
-    return new WindowedBlockStream(capacity);
+    this.blockStream = blockStream;
   }
 
-  public WindowedBlockStream getWindowedBlockStream()
-  {
-    return windowedBlockStream;
-  }
-
-  public void setWindowableByteStream(WindowedBlockStream windowableByteStream)
-  {
-    this.windowedBlockStream = windowableByteStream;
-  }
-
-  /**
-   * reset for all windows with window id less than or equal to the input windowId
-   * this interface doesn't call reset window for each windows. Several windows can be reset at the same time.
-   * @param windowId
-   */
-  @Override
-  public void completeWindow(long windowId)
-  {
-    windowedBlockStream.completeWindow(windowId);
-  }
 
   public byte[] toByteArray()
   {
@@ -137,7 +105,7 @@ public class SerializationBuffer extends Output implements WindowCompleteListene
   @Override
   protected boolean require(int required) throws KryoException
   {
-    Slice slice = this.windowedBlockStream.reserve(required);
+    Slice slice = this.blockStream.reserve(required);
     buffer = slice.buffer;
     position = slice.offset;
     return true;
@@ -147,7 +115,7 @@ public class SerializationBuffer extends Output implements WindowCompleteListene
   @Override
   public void write(int value) throws KryoException
   {
-    windowedBlockStream.write(value);
+    blockStream.write(value);
   }
 
   /** Writes the bytes. Note the byte[] length is not written. */
@@ -157,14 +125,14 @@ public class SerializationBuffer extends Output implements WindowCompleteListene
     if (bytes == null) {
       throw new IllegalArgumentException("bytes cannot be null.");
     }
-    windowedBlockStream.write(bytes);
+    blockStream.write(bytes);
   }
 
   /** Writes the bytes. Note the byte[] length is not written. */
   @Override
   public void write(byte[] bytes, int offset, int length) throws KryoException
   {
-    windowedBlockStream.write(bytes, offset, length);
+    blockStream.write(bytes, offset, length);
   }
 
   // byte
@@ -442,7 +410,7 @@ public class SerializationBuffer extends Output implements WindowCompleteListene
    */
   public Slice reserve(int length)
   {
-    return windowedBlockStream.reserve(length);
+    return blockStream.reserve(length);
   }
 }
 

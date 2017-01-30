@@ -25,6 +25,9 @@ public class PartitionSerde<T> extends Kryo
     buffer[offset++] = (byte)(partition >> 24);
 
     writeClassAndObject(output, object);
-    return output.toSlice();
+    Slice slice1 = output.toSlice();
+    byte[] array = new byte[slice1.length];
+    System.arraycopy(slice1.buffer, slice1.offset, array, 0, slice1.length);
+    return new Slice(array);
   }
 }

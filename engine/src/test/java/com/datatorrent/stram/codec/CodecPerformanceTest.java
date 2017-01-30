@@ -20,7 +20,7 @@ public class CodecPerformanceTest
 
   private DefaultStatefulStreamCodec codec = new DefaultStatefulStreamCodec();
 
-  protected int loop = 1;
+  protected int loop = 100;
   private int numOfValues = 1000000;
   protected static String[] values = null;
 
