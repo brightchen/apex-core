@@ -412,5 +412,36 @@ public class SerializationBuffer extends Output
   {
     return blockStream.reserve(length);
   }
+
+  /**
+   * reserve the space to tuple length
+   */
+  public void reserveForLength()
+  {
+    //TODO:
+  }
+
+  /**
+   * fill the length
+   */
+  public void fillLength()
+  {
+    //TODO:
+  }
+
+  public void fillInt(Slice location, int value)
+  {
+    //TODO:
+  }
+
+  public void fill(Slice location, Slice value)
+  {
+    //TODO:
+  }
+
+  public void fill(Slice location, byte[] value)
+  {
+    //TODO:
+  }
 }
 

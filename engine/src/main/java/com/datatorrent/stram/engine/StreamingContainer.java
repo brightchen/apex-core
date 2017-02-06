@@ -68,6 +68,7 @@ import com.datatorrent.api.StreamCodec;
 import com.datatorrent.api.StreamingApplication;
 import com.datatorrent.api.StringCodec;
 import com.datatorrent.api.annotation.Stateless;
+import com.datatorrent.bufferserver.server.DefaultEventLoopExt;
 import com.datatorrent.bufferserver.server.Server;
 import com.datatorrent.bufferserver.storage.DiskStorage;
 import com.datatorrent.bufferserver.util.Codec;
@@ -106,7 +107,7 @@ import com.datatorrent.stram.plan.logical.Operators.PortContextPair;
 import com.datatorrent.stram.plan.logical.Operators.PortMappingDescriptor;
 import com.datatorrent.stram.plan.logical.StreamCodecWrapperForPersistance;
 import com.datatorrent.stram.security.StramUserLogin;
-import com.datatorrent.stram.stream.BufferServerPublisher;
+import com.datatorrent.stram.stream.BufferServerPublisherExt;
 import com.datatorrent.stram.stream.BufferServerSubscriber;
 import com.datatorrent.stram.stream.FastPublisher;
 import com.datatorrent.stram.stream.FastSubscriber;
@@ -166,7 +167,7 @@ public class StreamingContainer extends YarnContainerMain
 
   static {
     try {
-      eventloop = DefaultEventLoop.createEventLoop("ProcessWideEventLoop");
+      eventloop = DefaultEventLoopExt.createEventLoop("ProcessWideEventLoop");
     } catch (IOException io) {
       throw new RuntimeException(io);
     }
@@ -944,7 +945,7 @@ public class StreamingContainer extends YarnContainerMain
       bssc.setBufferServerAddress(new InetSocketAddress(InetAddress.getByName(null), nodi.bufferServerPort));
     }
 
-    Stream publisher = fastPublisherSubscriber ? new FastPublisher(connIdentifier, queueCapacity * 256) : new BufferServerPublisher(connIdentifier, queueCapacity);
+    Stream publisher = fastPublisherSubscriber ? new FastPublisher(connIdentifier, queueCapacity * 256) : new BufferServerPublisherExt(connIdentifier, queueCapacity);
     return new HashMap.SimpleEntry<>(sinkIdentifier, new ComponentContextPair<>(publisher, bssc));
   }
 
