@@ -147,24 +147,28 @@ public class BufferServerPublisherExt extends BufferServerPublisher implements C
 
   private static class BufferInfo
   {
-    static final int SLICE_NUM = 1;
-    SerializationBuffer buffer = new SerializationBuffer(new BlockStream());
+    static final int SLICE_NUM = 1000;
+    final SerializationBuffer buffer = new SerializationBuffer(new BlockStream());
     Slice[] slices = new Slice[SLICE_NUM];
     int sliceNum = 0;
   }
 
   private BufferInfo serializationBufferInfo = new BufferInfo();
-  private BufferInfo socketBufferInfo = new BufferInfo();
-
-  private final int SLICE_NUM = 1;
-  private SerializationBuffer inputBuffer = new SerializationBuffer(new BlockStream());
-  private Slice[] inputSlices = new Slice[SLICE_NUM];
   private int serializationSlicesIndex = -1;
 
-  private SerializationBuffer outputBuffer = new SerializationBuffer(new BlockStream());
-  private Slice[] outputSlices = new Slice[SLICE_NUM];
+  private BufferInfo socketBufferInfo = new BufferInfo();
   private int socketSlicesIndex = -1;
+
   private AtomicBoolean requestSwitch = new AtomicBoolean();
+
+  private Exchanger<BufferInfo> exchanger = new Exchanger<>();
+
+//  private final int SLICE_NUM = 1000;
+//  private SerializationBuffer inputBuffer = new SerializationBuffer(new BlockStream());
+//  private Slice[] inputSlices = new Slice[SLICE_NUM];
+//
+//  private SerializationBuffer outputBuffer = new SerializationBuffer(new BlockStream());
+//  private Slice[] outputSlices = new Slice[SLICE_NUM];
 
   //set this flag when writer buffer emptied.
 //  private AtomicBoolean switchImmediately = new AtomicBoolean(false);
@@ -172,24 +176,34 @@ public class BufferServerPublisherExt extends BufferServerPublisher implements C
 
   //private Object serializationReady = new Object();
 //  private Object writerReady = new Object();
-  private Object switching = new Object();
+//  private Object switching = new Object();
 
-  private Exchanger<BufferInfo> exchanger = new Exchanger<>();
+
   /**
    * write until success.
    * @param slice
    */
   public void blockWrite(Slice slice)
   {
+    if (slice == null) {
+      throw new IllegalArgumentException("Input Slice should not null.");
+    }
     try {
-      if (++serializationSlicesIndex >= SLICE_NUM) {
+      if (++serializationSlicesIndex >= BufferInfo.SLICE_NUM) {
+//        System.out.println("serializationBufferInfo full. going to exchange. sliceNum = " + serializationSlicesIndex);
+        serializationBufferInfo.sliceNum = serializationSlicesIndex;
         serializationBufferInfo = exchanger.exchange(serializationBufferInfo);
+//        System.out.println("exchanged.");
         serializationSlicesIndex = 0;
       }
 
       serializationBufferInfo.slices[serializationSlicesIndex] = slice;
       if (requestSwitch.get()) {
+//        System.out.println("writer ask for exchange. going to exchange. sliceNum = " + (serializationSlicesIndex + 1));
+        serializationBufferInfo.sliceNum = serializationSlicesIndex + 1;
         serializationBufferInfo = exchanger.exchange(serializationBufferInfo);
+        serializationSlicesIndex = -1;
+//        System.out.println("exchanged.");
       }
     } catch (InterruptedException e) {
       throw new RuntimeException(e);
@@ -212,7 +226,7 @@ public class BufferServerPublisherExt extends BufferServerPublisher implements C
 
     //send remain data of writeToSocketBuffer
     if (writeToSocketBuffer != null) {
-      lengthToSend = writeToSocketBuffer.position();
+      lengthToSend = writeToSocketBuffer.remaining();
       while (lengthToSend > 0) {
         int sentLen = channel.write(writeToSocketBuffer);
         if (sentLen <= 0) {
@@ -252,7 +266,11 @@ public class BufferServerPublisherExt extends BufferServerPublisher implements C
     for (; socketSlicesIndex < socketBufferInfo.sliceNum; ++socketSlicesIndex) {
       if (currentBuffer == null) {
         //initialize
+        try {
         currentBuffer = socketBufferInfo.slices[socketSlicesIndex].buffer;
+        }catch(Exception e) {
+          throw new RuntimeException("");
+        }
         offset = socketBufferInfo.slices[socketSlicesIndex].offset;
         length = socketBufferInfo.slices[socketSlicesIndex].length;
       } else if (currentBuffer == socketBufferInfo.slices[socketSlicesIndex].buffer) {
@@ -267,5 +285,8 @@ public class BufferServerPublisherExt extends BufferServerPublisher implements C
 
       }
     }
+
+    //all slices are handled, ready from exchange
+    socketSlicesIndex = -1;
   }
 }
