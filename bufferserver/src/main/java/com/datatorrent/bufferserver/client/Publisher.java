@@ -31,7 +31,7 @@ import com.datatorrent.bufferserver.packet.PublishRequestTuple;
  */
 public abstract class Publisher extends AuthClient
 {
-  private final String id;
+  protected final String id;
 
   public Publisher(String id)
   {

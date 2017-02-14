@@ -159,7 +159,7 @@ public class BufferServerPublisher extends Publisher implements ByteCounterStrea
     eventloop.connect(address.isUnresolved() ? new InetSocketAddress(address.getHostName(), address.getPort()) : address, this);
 
     logger.debug("Registering publisher: {} {} windowId={} server={}", new Object[] {context.getSourceId(), context.getId(), Codec.getStringWindowId(context.getFinishedWindowId()), context.getBufferServerAddress()});
-    super.activate(null, context.getFinishedWindowId());
+    activate(null, context.getFinishedWindowId());
   }
 
   @Override

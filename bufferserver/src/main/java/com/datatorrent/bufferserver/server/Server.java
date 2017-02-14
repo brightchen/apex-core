@@ -464,6 +464,7 @@ public class Server implements ServerListener
       }
 
       Tuple request = Tuple.getTuple(buffer, offset, size);
+      System.out.println("received message type: " + request.getType());
       switch (request.getType()) {
         case PUBLISHER_REQUEST:
 

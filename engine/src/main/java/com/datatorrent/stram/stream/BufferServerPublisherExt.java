@@ -16,15 +16,15 @@ import com.datatorrent.bufferserver.packet.BeginWindowTuple;
 import com.datatorrent.bufferserver.packet.EndStreamTuple;
 import com.datatorrent.bufferserver.packet.EndWindowTuple;
 import com.datatorrent.bufferserver.packet.MessageType;
+import com.datatorrent.bufferserver.packet.PublishRequestTuple;
 import com.datatorrent.bufferserver.packet.ResetWindowTuple;
 import com.datatorrent.bufferserver.packet.WindowIdTuple;
 import com.datatorrent.bufferserver.server.ClientListenerExt;
 import com.datatorrent.netlet.util.Slice;
+import com.datatorrent.netlet.util.VarInt;
 import com.datatorrent.stram.codec.StatefulStreamCodec;
 import com.datatorrent.stram.engine.StreamContext;
 import com.datatorrent.stram.tuple.Tuple;
-
-import static java.lang.Thread.sleep;
 
 public class BufferServerPublisherExt extends BufferServerPublisher implements ClientListenerExt
 {
@@ -64,10 +64,16 @@ public class BufferServerPublisherExt extends BufferServerPublisher implements C
   private PartitionSerde partitionSerde = new PartitionSerde();
   private SerializationBuffer serializationBuffer = SerializationBuffer.READ_BUFFER;
   private int tupleCount = 0;
+
+  private boolean ignorePut = false;
   @Override
   @SuppressWarnings({ "SleepWhileInLoop", "unchecked" })
-  public void put(Object payload)
+  public synchronized void put(Object payload)
   {
+    if(ignorePut) {
+      return;
+    }
+
     count++;
     byte[] array;
     Slice slice = null;
@@ -107,15 +113,8 @@ public class BufferServerPublisherExt extends BufferServerPublisher implements C
 
       serializationBuffer.write(array);
       slice = serializationBuffer.toSlice();
-      try {
-        while (!write(slice.buffer, slice.offset, slice.length)) {
-          sleep(5);
-        }
-        publishedByteCount.addAndGet(array.length);
-      } catch (InterruptedException ie) {
-        throw new RuntimeException(ie);
-      }
-
+      this.blockWrite(slice);
+      publishedByteCount.addAndGet(array.length);
     } else {
       if (serde != null) {
         int partition = serde.getPartition(payload);
@@ -178,7 +177,6 @@ public class BufferServerPublisherExt extends BufferServerPublisher implements C
 //  private Object writerReady = new Object();
 //  private Object switching = new Object();
 
-
   /**
    * write until success.
    * @param slice
@@ -190,20 +188,22 @@ public class BufferServerPublisherExt extends BufferServerPublisher implements C
     }
     try {
       if (++serializationSlicesIndex >= BufferInfo.SLICE_NUM) {
-//        System.out.println("serializationBufferInfo full. going to exchange. sliceNum = " + serializationSlicesIndex);
+        System.out.println("serializationBufferInfo full. going to exchange. sliceNum = " + serializationSlicesIndex);
         serializationBufferInfo.sliceNum = serializationSlicesIndex;
+        requestSwitch.set(true);
         serializationBufferInfo = exchanger.exchange(serializationBufferInfo);
-//        System.out.println("exchanged.");
+        System.out.println("exchanged.");
         serializationSlicesIndex = 0;
       }
 
       serializationBufferInfo.slices[serializationSlicesIndex] = slice;
+      System.out.println("index: " + serializationSlicesIndex +"; slice: " + slice);
       if (requestSwitch.get()) {
-//        System.out.println("writer ask for exchange. going to exchange. sliceNum = " + (serializationSlicesIndex + 1));
+        System.out.println("writer ask for exchange. going to exchange. sliceNum = " + (serializationSlicesIndex + 1));
         serializationBufferInfo.sliceNum = serializationSlicesIndex + 1;
         serializationBufferInfo = exchanger.exchange(serializationBufferInfo);
         serializationSlicesIndex = -1;
-//        System.out.println("exchanged.");
+        System.out.println("exchanged.");
       }
     } catch (InterruptedException e) {
       throw new RuntimeException(e);
@@ -234,29 +234,68 @@ public class BufferServerPublisherExt extends BufferServerPublisher implements C
           return false;
         }
         lengthToSend -= sentLen;
+        System.out.println("sentLen: " + sentLen + "; lengthToSend: " + lengthToSend);
       }
     }
     return true;
   }
 
+  /**
+   * The first message is SUBSCRIBER_REQUEST, it should not send combined with other messages.
+   * As the Server need to switch handler from UnidentifiedClient to Subscriber
+   */
+  private boolean sendMessageOneByOne = true;
+
   @Override
   public void writeExt() throws IOException
   {
+    //in case there still have leftover in writeToSocketBuffer
     if (!writeByteBufferToSocket()) {
       return;
     }
 
-    //send data from socket slices
-    if (socketSlicesIndex < 0) {
+    //no data to send, need exchange.
+    if (socketSlicesIndex < 0 || socketSlicesIndex == socketBufferInfo.sliceNum) {
       socketBufferInfo.buffer.reset();
-      //exchange
-      requestSwitch.set(true);
+
+      //if the serialization buffer is full, exchange
+      if (requestSwitch.get()) {
+        try {
+          socketBufferInfo = exchanger.exchange(socketBufferInfo);
+        } catch (InterruptedException e) {
+          throw new RuntimeException(e);
+        }
+        socketSlicesIndex = 0;
+      } else {
+        //wait for put done and exchange.
+        synchronized(this) {
+          if(serializationSlicesIndex < 0) {
+            //no data;
+            return;
+          }
+          exchange();
+          socketSlicesIndex = 0;
+        }
+      }
+    }
+
+    //send data from socket slices
+    if(sendMessageOneByOne) {
+      Slice slice = socketBufferInfo.slices[socketSlicesIndex];
+      //first message should not merge with other messages
+      writeToSocketBuffer = ByteBuffer.wrap(slice.buffer, slice.offset, slice.length);
+      if (!writeByteBufferToSocket()) {
+        return;
+      }
+      //sendMessageOneByOne = false;
+      socketSlicesIndex++;
+
       try {
-        socketBufferInfo = exchanger.exchange(socketBufferInfo);
+        Thread.sleep(100);
       } catch (InterruptedException e) {
         throw new RuntimeException(e);
       }
-      socketSlicesIndex = 0;
+      return;
     }
 
     //merge and send
@@ -267,8 +306,8 @@ public class BufferServerPublisherExt extends BufferServerPublisher implements C
       if (currentBuffer == null) {
         //initialize
         try {
-        currentBuffer = socketBufferInfo.slices[socketSlicesIndex].buffer;
-        }catch(Exception e) {
+          currentBuffer = socketBufferInfo.slices[socketSlicesIndex].buffer;
+        } catch (Exception e) {
           throw new RuntimeException("");
         }
         offset = socketBufferInfo.slices[socketSlicesIndex].offset;
@@ -288,5 +327,26 @@ public class BufferServerPublisherExt extends BufferServerPublisher implements C
 
     //all slices are handled, ready from exchange
     socketSlicesIndex = -1;
+  }
+
+  private void exchange()
+  {
+    BufferInfo tmp = socketBufferInfo;
+    serializationBufferInfo.sliceNum = serializationSlicesIndex + 1;
+    socketBufferInfo = serializationBufferInfo;
+    serializationBufferInfo = tmp;
+  }
+
+  @Override
+  public synchronized void activate(String version, long windowId)
+  {
+    sendAuthenticate();
+    byte[] request = PublishRequestTuple.getSerializedRequest(version, id, windowId);
+    byte[] byteLength = new byte[4];
+    int lenOfLen = VarInt.write(request.length, byteLength, 0);
+    byte[] data = new byte[request.length + lenOfLen];
+    System.arraycopy(byteLength, 0, data, 0, lenOfLen);
+    System.arraycopy(request, 0, data, lenOfLen, request.length);
+    write(data);
   }
 }
