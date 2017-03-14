@@ -153,6 +153,7 @@ public class StramClient
   };
 
   private static final Class<?>[] APEX_SECURITY_SPECIFIC_CLASSES = new Class<?>[]{
+      com.sun.jersey.client.apache4.ApacheHttpClient4Handler.class
   };
 
   private static final Class<?>[] APEX_SECURITY_CLASSES =
@@ -390,6 +391,8 @@ public class StramClient
     if (YARN_APPLICATION_TYPE.equals(this.applicationType)) {
       //appContext.setMaxAppAttempts(1); // no retries until Stram is HA
     }
+
+    appContext.setKeepContainersAcrossApplicationAttempts(true);
 
     // Set up the container launch context for the application master
     ContainerLaunchContext amContainer = Records.newRecord(ContainerLaunchContext.class);

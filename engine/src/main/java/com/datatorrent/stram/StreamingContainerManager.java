@@ -134,6 +134,7 @@ import com.datatorrent.stram.api.StreamingContainerUmbilicalProtocol.ContainerHe
 import com.datatorrent.stram.api.StreamingContainerUmbilicalProtocol.ContainerHeartbeatResponse;
 import com.datatorrent.stram.api.StreamingContainerUmbilicalProtocol.ContainerStats;
 import com.datatorrent.stram.api.StreamingContainerUmbilicalProtocol.OperatorHeartbeat;
+import com.datatorrent.stram.api.StreamingContainerUmbilicalProtocol.ShutdownType;
 import com.datatorrent.stram.api.StreamingContainerUmbilicalProtocol.StramToNodeRequest;
 import com.datatorrent.stram.api.StreamingContainerUmbilicalProtocol.StreamingContainerContext;
 import com.datatorrent.stram.engine.OperatorResponse;
@@ -581,9 +582,6 @@ public class StreamingContainerManager implements PlanContext
     if (poolExecutor != null) {
       poolExecutor.shutdown();
     }
-    if (poolExecutor != null) {
-      poolExecutor.shutdown();
-    }
   }
 
   public void subscribeToEvents(Object listener)
@@ -708,7 +706,7 @@ public class StreamingContainerManager implements PlanContext
               appDataSource.setQueryOperatorName(queryOperatorName);
               appDataSource.setQueryTopic(queryTopic);
               appDataSource.setQueryUrl(convertAppDataUrl(queryUrl));
-              List<LogicalPlan.InputPortMeta> sinks = entry.getValue().getSinks();
+              Collection<LogicalPlan.InputPortMeta> sinks = entry.getValue().getSinks();
               if (sinks.isEmpty()) {
                 LOG.warn("There is no result operator for the App Data Source {}.{}. Ignoring the App Data Source.", operatorMeta.getName(), portMeta.getPortName());
                 continue;
@@ -717,7 +715,7 @@ public class StreamingContainerManager implements PlanContext
                 LOG.warn("There are multiple result operators for the App Data Source {}.{}. Ignoring the App Data Source.", operatorMeta.getName(), portMeta.getPortName());
                 continue;
               }
-              OperatorMeta resultOperatorMeta = sinks.get(0).getOperatorWrapper();
+              OperatorMeta resultOperatorMeta = sinks.iterator().next().getOperatorMeta();
               if (resultOperatorMeta.getOperator() instanceof AppData.ConnectionInfoProvider) {
                 AppData.ConnectionInfoProvider resultOperator = (AppData.ConnectionInfoProvider)resultOperatorMeta.getOperator();
                 appDataSource.setResultOperatorName(resultOperatorMeta.getName());
@@ -751,7 +749,7 @@ public class StreamingContainerManager implements PlanContext
    * Check periodically that deployed containers phone home.
    * Run from the master main loop (single threaded access).
    */
-  public void monitorHeartbeat()
+  public void monitorHeartbeat(boolean waitForRecovery)
   {
     long currentTms = clock.getTime();
 
@@ -764,7 +762,7 @@ public class StreamingContainerManager implements PlanContext
         for (PTContainer c : pendingAllocation) {
           LOG.warn("Waiting for resource: {}m priority: {} {}", c.getRequiredMemoryMB(), c.getResourceRequestPriority(), c);
         }
-        shutdownAllContainers(msg);
+        shutdownAllContainers(ShutdownType.ABORT, msg);
         this.forcedShutdown = true;
       } else {
         for (PTContainer c : pendingAllocation) {
@@ -800,7 +798,7 @@ public class StreamingContainerManager implements PlanContext
     // events that may modify the plan
     processEvents();
 
-    committedWindowId = updateCheckpoints(false);
+    committedWindowId = updateCheckpoints(waitForRecovery);
     calculateEndWindowStats();
     if (this.vars.enableStatsRecording) {
       recordStats(currentTms);
@@ -1124,7 +1122,7 @@ public class StreamingContainerManager implements PlanContext
   public void scheduleContainerRestart(String containerId)
   {
     StreamingContainerAgent cs = this.getContainerAgent(containerId);
-    if (cs == null || cs.shutdownRequested) {
+    if (cs == null || cs.isShutdownRequested()) {
       // the container is no longer used / was released by us
       return;
     }
@@ -1140,7 +1138,7 @@ public class StreamingContainerManager implements PlanContext
     // resolve dependencies
     UpdateCheckpointsContext ctx = new UpdateCheckpointsContext(clock, false, getCheckpointGroups());
     for (PTOperator oper : cs.container.getOperators()) {
-      updateRecoveryCheckpoints(oper, ctx);
+      updateRecoveryCheckpoints(oper, ctx, false);
     }
     includeLocalUpstreamOperators(ctx);
 
@@ -1172,7 +1170,7 @@ public class StreamingContainerManager implements PlanContext
       }
       if (!newOperators.isEmpty()) {
         for (PTOperator oper : newOperators) {
-          updateRecoveryCheckpoints(oper, ctx);
+          updateRecoveryCheckpoints(oper, ctx, false);
         }
       }
     } while (!newOperators.isEmpty());
@@ -1431,7 +1429,7 @@ public class StreamingContainerManager implements PlanContext
       } else {
         String msg = String.format("Shutdown after reaching failure threshold for %s", oper);
         LOG.warn(msg);
-        shutdownAllContainers(msg);
+        shutdownAllContainers(ShutdownType.ABORT, msg);
         forcedShutdown = true;
       }
     } else {
@@ -1457,7 +1455,7 @@ public class StreamingContainerManager implements PlanContext
       // could be orphaned container that was replaced and needs to terminate
       LOG.error("Unknown container {}", heartbeat.getContainerId());
       ContainerHeartbeatResponse response = new ContainerHeartbeatResponse();
-      response.shutdown = true;
+      response.shutdown = ShutdownType.ABORT;
       return response;
     }
 
@@ -1774,11 +1772,11 @@ public class StreamingContainerManager implements PlanContext
 
     if (heartbeat.getContainerStats().operators.isEmpty() && isApplicationIdle()) {
       LOG.info("requesting idle shutdown for container {}", heartbeat.getContainerId());
-      rsp.shutdown = true;
+      rsp.shutdown = ShutdownType.ABORT;
     } else {
-      if (sca.shutdownRequested) {
+      if (sca.isShutdownRequested()) {
         LOG.info("requesting shutdown for container {}", heartbeat.getContainerId());
-        rsp.shutdown = true;
+        rsp.shutdown = sca.shutdownRequest;
       }
     }
 
@@ -2024,7 +2022,7 @@ public class StreamingContainerManager implements PlanContext
    * @param operator Operator instance for which to find recovery checkpoint
    * @param ctx      Context into which to collect traversal info
    */
-  public void updateRecoveryCheckpoints(PTOperator operator, UpdateCheckpointsContext ctx)
+  public void updateRecoveryCheckpoints(PTOperator operator, UpdateCheckpointsContext ctx, boolean recovery)
   {
     if (operator.getRecoveryCheckpoint().windowId < ctx.committedWindowId.longValue()) {
       ctx.committedWindowId.setValue(operator.getRecoveryCheckpoint().windowId);
@@ -2033,7 +2031,7 @@ public class StreamingContainerManager implements PlanContext
     if (operator.getState() == PTOperator.State.ACTIVE &&
         (ctx.currentTms - operator.stats.lastWindowIdChangeTms) > operator.stats.windowProcessingTimeoutMillis) {
       // if the checkpoint is ahead, then it is not blocked but waiting for activation (state-less recovery, at-most-once)
-      if (ctx.committedWindowId.longValue() >= operator.getRecoveryCheckpoint().windowId) {
+      if (ctx.committedWindowId.longValue() >= operator.getRecoveryCheckpoint().windowId && !recovery) {
         LOG.warn("Marking operator {} blocked committed window {}, recovery window {}, current time {}, last window id change time {}, window processing timeout millis {}",
             operator,
             Codec.getStringWindowId(ctx.committedWindowId.longValue()),
@@ -2098,7 +2096,7 @@ public class StreamingContainerManager implements PlanContext
           }
           if (!ctx.visited.contains(sinkOperator)) {
             // downstream traversal
-            updateRecoveryCheckpoints(sinkOperator, ctx);
+            updateRecoveryCheckpoints(sinkOperator, ctx, recovery);
           }
           // recovery window id cannot move backwards
           // when dynamically adding new operators
@@ -2194,12 +2192,11 @@ public class StreamingContainerManager implements PlanContext
     int operatorCount = 0;
     UpdateCheckpointsContext ctx = new UpdateCheckpointsContext(clock, recovery, getCheckpointGroups());
     for (OperatorMeta logicalOperator : plan.getLogicalPlan().getRootOperators()) {
-      //LOG.debug("Updating checkpoints for operator {}", logicalOperator.getName());
       List<PTOperator> operators = plan.getOperators(logicalOperator);
       if (operators != null) {
         for (PTOperator operator : operators) {
           operatorCount++;
-          updateRecoveryCheckpoints(operator, ctx);
+          updateRecoveryCheckpoints(operator, ctx, recovery);
         }
       }
     }
@@ -2260,14 +2257,15 @@ public class StreamingContainerManager implements PlanContext
    * If containers don't respond, the application can be forcefully terminated
    * via yarn using forceKillApplication.
    *
+   * @param type
    * @param message
    */
-  public void shutdownAllContainers(String message)
+  public void shutdownAllContainers(ShutdownType type, String message)
   {
     this.shutdownDiagnosticsMessage = message;
-    LOG.info("Initiating application shutdown: {}", message);
+    LOG.info("Initiating application shutdown: type {} {}", type, message);
     for (StreamingContainerAgent cs : this.containers.values()) {
-      cs.shutdownRequested = true;
+      cs.requestShutDown(type);
     }
   }
 
@@ -2375,7 +2373,7 @@ public class StreamingContainerManager implements PlanContext
           LOG.debug("Container marked for shutdown: {}", c);
           // container already removed from plan
           // TODO: monitor soft shutdown
-          sca.shutdownRequested = true;
+          sca.requestShutDown(ShutdownType.ABORT);
         }
       }
 
@@ -2497,10 +2495,6 @@ public class StreamingContainerManager implements PlanContext
     oi.currentWindowId = toWsWindowId(os.currentWindowId.get());
     if (os.lastHeartbeat != null) {
       oi.lastHeartbeat = os.lastHeartbeat.getGeneratedTms();
-    }
-    if (os.checkpointStats != null) {
-      oi.checkpointTime = os.checkpointStats.checkpointTime;
-      oi.checkpointStartTime = os.checkpointStats.checkpointStartTime;
     }
     if (os.checkpointStats != null) {
       oi.checkpointTime = os.checkpointStats.checkpointTime;

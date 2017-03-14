@@ -25,7 +25,6 @@ import java.nio.channels.SelectionKey;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Iterator;
 import java.util.Map.Entry;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -54,6 +53,7 @@ import com.datatorrent.netlet.AbstractLengthPrependerClient;
 import com.datatorrent.netlet.DefaultEventLoop;
 import com.datatorrent.netlet.EventLoop;
 import com.datatorrent.netlet.Listener.ServerListener;
+import com.datatorrent.netlet.WriteOnlyLengthPrependerClient;
 import com.datatorrent.netlet.util.VarInt;
 
 /**
@@ -75,6 +75,8 @@ public class Server implements ServerListener
   private final ExecutorService storageHelperExecutor;
 
   private byte[] authToken;
+
+  private static final boolean BACK_PRESSURE_ENABLED = !Boolean.getBoolean("org.apache.apex.bufferserver.backpressure.disable");
 
   /**
    * @param port - port number to bind to or 0 to auto select a free port
@@ -114,7 +116,7 @@ public class Server implements ServerListener
   public void unregistered(SelectionKey key)
   {
     for (LogicalNode ln : subscriberGroups.values()) {
-      ln.boot(eventloop);
+      ln.boot();
     }
     /*
      * There may be unregister tasks scheduled to run on the event loop that use serverHelperExecutor.
@@ -267,8 +269,8 @@ public class Server implements ServerListener
           DataList dl = publisherBuffers.get(upstream_identifier);
           if (dl == null) {
             dl = Tuple.FAST_VERSION.equals(request.getVersion()) ?
-                new FastDataList(upstream_identifier, blockSize, numberOfCacheBlocks) :
-                new DataList(upstream_identifier, blockSize, numberOfCacheBlocks);
+                new FastDataList(upstream_identifier, blockSize, numberOfCacheBlocks, BACK_PRESSURE_ENABLED) :
+                new DataList(upstream_identifier, blockSize, numberOfCacheBlocks, BACK_PRESSURE_ENABLED);
             DataList odl = publisherBuffers.putIfAbsent(upstream_identifier, dl);
             if (odl != null) {
               dl = odl;
@@ -279,7 +281,7 @@ public class Server implements ServerListener
           final String type = request.getStreamType();
           final long skipWindowId = (long)request.getBaseSeconds() << 32 | request.getWindowId();
           final LogicalNode ln = new LogicalNode(identifier, upstream_identifier, type, dl
-              .newIterator(skipWindowId), skipWindowId);
+              .newIterator(skipWindowId), skipWindowId, eventloop);
 
           int mask = request.getMask();
           if (mask != 0) {
@@ -289,16 +291,19 @@ public class Server implements ServerListener
           }
           final LogicalNode oln = subscriberGroups.put(type, ln);
           if (oln != null) {
-            oln.boot(eventloop);
+            oln.boot();
           }
-          AbstractLengthPrependerClient subscriber = new Subscriber(ln, request.getBufferSize());
-
-          subscriber.registered(key);
-          key.attach(subscriber);
-          key.interestOps(SelectionKey.OP_WRITE | SelectionKey.OP_READ);
-
-          ln.catchUp();
-          dl.addDataListener(ln);
+          final Subscriber subscriber = new Subscriber(ln, request.getBufferSize());
+          eventloop.submit(new Runnable()
+          {
+            @Override
+            public void run()
+            {
+              key.attach(subscriber);
+              subscriber.registered(key);
+              subscriber.connected();
+            }
+          });
         }
       });
     } catch (RejectedExecutionException e) {
@@ -387,8 +392,8 @@ public class Server implements ServerListener
       }
     } else {
       dl = Tuple.FAST_VERSION.equals(request.getVersion()) ?
-          new FastDataList(identifier, blockSize, numberOfCacheBlocks) :
-          new DataList(identifier, blockSize, numberOfCacheBlocks);
+          new FastDataList(identifier, blockSize, numberOfCacheBlocks, BACK_PRESSURE_ENABLED) :
+          new DataList(identifier, blockSize, numberOfCacheBlocks, BACK_PRESSURE_ENABLED);
       DataList odl = publisherBuffers.putIfAbsent(identifier, dl);
       if (odl != null) {
         dl = odl;
@@ -513,7 +518,7 @@ public class Server implements ServerListener
           /*
            * unregister the unidentified client since its job is done!
            */
-          unregistered(key);
+          unregistered(key.interestOps(0));
           ignore = true;
           logger.info("Received subscriber request: {}", request);
 
@@ -545,23 +550,36 @@ public class Server implements ServerListener
 
   }
 
-  class Subscriber extends AbstractLengthPrependerClient
+  private class Subscriber extends WriteOnlyLengthPrependerClient
   {
     private LogicalNode ln;
 
     Subscriber(LogicalNode ln, int bufferSize)
     {
-      super(1024, bufferSize);
+      super(1024 * 1024, bufferSize == 0 ? 256 * 1024 : bufferSize);
       this.ln = ln;
       ln.addConnection(this);
-      super.write = false;
     }
 
     @Override
-    public void onMessage(byte[] buffer, int offset, int size)
+    public void connected()
     {
-      logger.warn("Received data when no data is expected: {}",
-          Arrays.toString(Arrays.copyOfRange(buffer, offset, offset + size)));
+      super.connected();
+      serverHelperExecutor.submit(new Runnable()
+      {
+        @Override
+        public void run()
+        {
+          final DataList dl = publisherBuffers.get(ln.getUpstream());
+          if (dl != null) {
+            ln.catchUp();
+            dl.addDataListener(ln);
+          } else {
+            logger.error("Disconnecting {} with no matching data list.", this);
+            ln.boot();
+          }
+        }
+      });
     }
 
     @Override
@@ -800,7 +818,7 @@ public class Server implements ServerListener
       }
 
       for (LogicalNode ln : list) {
-        ln.boot(eventloop);
+        ln.boot();
       }
     }
 

@@ -33,6 +33,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import org.apache.apex.log.LogFileInformation;
+
 import org.apache.commons.lang3.SerializationUtils;
 import org.apache.hadoop.fs.FileContext;
 import org.apache.hadoop.fs.Path;
@@ -81,6 +84,7 @@ public class StramLocalCluster implements Runnable, Controller
   private final Map<String, StreamingContainer> injectShutdown = new ConcurrentHashMap<>();
   private boolean heartbeatMonitoringEnabled = true;
   private Callable<Boolean> exitCondition;
+  private Thread master;
 
   public interface MockComponentFactory
   {
@@ -105,13 +109,9 @@ public class StramLocalCluster implements Runnable, Controller
     }
 
     @Override
-    public void reportError(String containerId, int[] operators, String msg)
+    public void reportError(String containerId, int[] operators, String msg, LogFileInformation logFileInfo) throws IOException
     {
-      try {
-        log(containerId, msg);
-      } catch (IOException ex) {
-        // ignore
-      }
+      log(containerId, msg);
     }
 
     @Override
@@ -131,11 +131,11 @@ public class StramLocalCluster implements Runnable, Controller
     }
 
     @Override
-    public ContainerHeartbeatResponse processHeartbeat(ContainerHeartbeat msg)
+    public ContainerHeartbeatResponse processHeartbeat(ContainerHeartbeat msg) throws IOException
     {
       if (injectShutdown.containsKey(msg.getContainerId())) {
         ContainerHeartbeatResponse r = new ContainerHeartbeatResponse();
-        r.shutdown = true;
+        r.shutdown = ShutdownType.ABORT;
         return r;
       }
       try {
@@ -404,13 +404,32 @@ public class StramLocalCluster implements Runnable, Controller
   @Override
   public void runAsync()
   {
-    new Thread(this, "master").start();
+    master = new Thread(this, "master");
+    master.start();
   }
 
   @Override
   public void shutdown()
   {
     appDone = true;
+    awaitTermination(0);
+  }
+
+  private void awaitTermination(long millis)
+  {
+    if (master != null) {
+      try {
+        master.interrupt();
+        master.join(millis);
+      } catch (InterruptedException e) {
+        throw new RuntimeException(e);
+      } finally {
+        if (master.isAlive()) {
+          LOG.warn("{} {} did not terminate.", this.getClass().getSimpleName(), master.getName());
+        }
+        master = null;
+      }
+    }
   }
 
   public boolean isFinished()
@@ -446,7 +465,7 @@ public class StramLocalCluster implements Runnable, Controller
   {
     if (!perContainerBufferServer) {
       StreamingContainer.eventloop.start();
-      bufferServer = new Server(0, 1024 * 1024,8);
+      bufferServer = new Server(0, 1024 * 1024, 8);
       try {
         bufferServer.setSpoolStorage(new DiskStorage());
       } catch (IOException e) {
@@ -466,7 +485,7 @@ public class StramLocalCluster implements Runnable, Controller
         StreamingContainer c = childContainers.get(containerIdStr);
         if (c != null) {
           ContainerHeartbeatResponse r = new ContainerHeartbeatResponse();
-          r.shutdown = true;
+          r.shutdown = StreamingContainerUmbilicalProtocol.ShutdownType.ABORT;
           c.processHeartbeatResponse(r);
         }
         dnmgr.containerStopRequests.remove(containerIdStr);
@@ -485,7 +504,7 @@ public class StramLocalCluster implements Runnable, Controller
 
       if (heartbeatMonitoringEnabled) {
         // monitor child containers
-        dnmgr.monitorHeartbeat();
+        dnmgr.monitorHeartbeat(false);
       }
 
       if (childContainers.isEmpty() && dnmgr.containerStartRequests.isEmpty()) {
@@ -512,7 +531,7 @@ public class StramLocalCluster implements Runnable, Controller
         try {
           Thread.sleep(1000);
         } catch (InterruptedException e) {
-          LOG.info("Sleep interrupted " + e.getMessage());
+          LOG.debug("Sleep interrupted", e);
           break;
         }
       }
@@ -527,7 +546,10 @@ public class StramLocalCluster implements Runnable, Controller
       try {
         thread.join(1000);
       } catch (InterruptedException e) {
-        LOG.warn("Container thread didn't finish {}", thread.getName());
+        LOG.debug("Sleep interrupted", e);
+      }
+      if (thread.isAlive()) {
+        LOG.warn("Container thread {} didn't finish", thread.getName());
       }
     }
 

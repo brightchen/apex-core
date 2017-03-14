@@ -27,7 +27,6 @@ import java.net.InetSocketAddress;
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
@@ -63,9 +62,6 @@ import org.apache.hadoop.yarn.api.records.ContainerId;
 import org.apache.hadoop.yarn.api.records.ContainerState;
 import org.apache.hadoop.yarn.api.records.ContainerStatus;
 import org.apache.hadoop.yarn.api.records.FinalApplicationStatus;
-import org.apache.hadoop.yarn.api.records.NodeId;
-import org.apache.hadoop.yarn.api.records.Priority;
-import org.apache.hadoop.yarn.api.records.Resource;
 import org.apache.hadoop.yarn.client.api.AMRMClient;
 import org.apache.hadoop.yarn.client.api.AMRMClient.ContainerRequest;
 import org.apache.hadoop.yarn.client.api.YarnClient;
@@ -75,7 +71,6 @@ import org.apache.hadoop.yarn.conf.YarnConfiguration;
 import org.apache.hadoop.yarn.exceptions.YarnException;
 import org.apache.hadoop.yarn.exceptions.YarnRuntimeException;
 import org.apache.hadoop.yarn.util.Clock;
-import org.apache.hadoop.yarn.util.ConverterUtils;
 import org.apache.hadoop.yarn.util.Records;
 import org.apache.hadoop.yarn.util.SystemClock;
 import org.apache.hadoop.yarn.webapp.WebApp;
@@ -705,7 +700,7 @@ public class StreamingAppMasterService extends CompositeService
     int loopCounter = -1;
     long nodeReportUpdateTime = 0;
     List<ContainerId> releasedContainers = new ArrayList<>();
-    int numTotalContainers = 0;
+
     // keep track of already requested containers to not request them again while waiting for allocation
     int numRequestedContainers = 0;
     int numReleasedContainers = 0;
@@ -729,7 +724,7 @@ public class StreamingAppMasterService extends CompositeService
         dnmgr.shutdownDiagnosticsMessage = String.format("Application master failed due to application %s with duplicate application name \"%s\" by the same user \"%s\" is already started.",
             ar.getApplicationId().toString(), ar.getName(), ar.getUser());
         LOG.info("Forced shutdown due to {}", dnmgr.shutdownDiagnosticsMessage);
-        finishApplication(FinalApplicationStatus.FAILED, numTotalContainers);
+        finishApplication(FinalApplicationStatus.FAILED);
         return;
       }
       resourceRequestor.updateNodeReports(clientRMService.getNodeReports());
@@ -740,9 +735,12 @@ public class StreamingAppMasterService extends CompositeService
       clientRMService.stop();
     }
 
-    // check for previously allocated containers
-    // as of 2.2, containers won't survive AM restart, but this will change in the future - YARN-1490
-    checkContainerStatus();
+    List<Container> containers = response.getContainersFromPreviousAttempts();
+
+    // Running containers might take a while to register with the new app master and send the heartbeat signal.
+    int waitForRecovery = containers.size() > 0 ? dag.getValue(LogicalPlan.HEARTBEAT_TIMEOUT_MILLIS) / 1000 : 0;
+
+    previouslyAllocatedContainers(containers);
     FinalApplicationStatus finalStatus = FinalApplicationStatus.SUCCEEDED;
     final InetSocketAddress rmAddress = conf.getSocketAddr(YarnConfiguration.RM_ADDRESS,
         YarnConfiguration.DEFAULT_RM_ADDRESS,
@@ -829,7 +827,7 @@ public class StreamingAppMasterService extends CompositeService
 
       resourceRequestor.reissueContainerRequests(amRmClient, requestedResources, loopCounter, resourceRequestor, containerRequests, removedContainerRequests);
 
-     /* Remove nodes from blacklist after timeout */
+      /* Remove nodes from blacklist after timeout */
       List<String> blacklistRemovals = new ArrayList<>();
       for (String hostname : failedBlackListedNodes) {
         Long timeDiff = currentTimeMillis - failedContainerNodesMap.get(hostname).blackListAdditionTime;
@@ -844,8 +842,7 @@ public class StreamingAppMasterService extends CompositeService
         failedBlackListedNodes.removeAll(blacklistRemovals);
       }
 
-      numTotalContainers += containerRequests.size();
-      numRequestedContainers += containerRequests.size();
+      numRequestedContainers += containerRequests.size() - removedContainerRequests.size();
       AllocateResponse amResp = sendContainerAskToRM(containerRequests, removedContainerRequests, releasedContainers);
       if (amResp.getAMCommand() != null) {
         LOG.info(" statement executed:{}", amResp.getAMCommand());
@@ -884,7 +881,7 @@ public class StreamingAppMasterService extends CompositeService
           LOG.info("Releasing {} as resource with priority {} was already assigned", allocatedContainer.getId(), allocatedContainer.getPriority());
           releasedContainers.add(allocatedContainer.getId());
           numReleasedContainers++;
-          numRequestedContainers++;
+          numRequestedContainers--;
           continue;
         }
         if (csr != null) {
@@ -1025,23 +1022,26 @@ public class StreamingAppMasterService extends CompositeService
         appDone = true;
       }
 
-      LOG.debug("Current application state: loop=" + loopCounter + ", appDone=" + appDone + ", total=" + numTotalContainers + ", requested=" + numRequestedContainers + ", released=" + numReleasedContainers + ", completed=" + numCompletedContainers + ", failed=" + numFailedContainers + ", currentAllocated=" + allocatedContainers.size());
+      LOG.debug("Current application state: loop={}, appDone={}, requested={}, released={}, completed={}, failed={}, currentAllocated={}, dnmgr.containerStartRequests={}",
+          loopCounter, appDone, numRequestedContainers, numReleasedContainers, numCompletedContainers, numFailedContainers, allocatedContainers.size(), dnmgr.containerStartRequests);
 
       // monitor child containers
-      dnmgr.monitorHeartbeat();
+      dnmgr.monitorHeartbeat(waitForRecovery > 0);
+
+      waitForRecovery = Math.max(waitForRecovery - 1, 0);
     }
 
-    finishApplication(finalStatus, numTotalContainers);
+    finishApplication(finalStatus);
   }
 
-  private void finishApplication(FinalApplicationStatus finalStatus, int numTotalContainers) throws YarnException, IOException
+  private void finishApplication(FinalApplicationStatus finalStatus) throws YarnException, IOException
   {
     LOG.info("Application completed. Signalling finish to RM");
     FinishApplicationMasterRequest finishReq = Records.newRecord(FinishApplicationMasterRequest.class);
     finishReq.setFinalApplicationStatus(finalStatus);
 
     if (finalStatus != FinalApplicationStatus.SUCCEEDED) {
-      String diagnostics = "Diagnostics." + ", total=" + numTotalContainers + ", completed=" + numCompletedContainers.get() + ", allocated=" + allocatedContainers.size() + ", failed=" + numFailedContainers.get();
+      String diagnostics = "Diagnostics." + " completed=" + numCompletedContainers.get() + ", allocated=" + allocatedContainers.size() + ", failed=" + numFailedContainers.get();
       if (!StringUtils.isEmpty(dnmgr.shutdownDiagnosticsMessage)) {
         diagnostics += "\n";
         diagnostics += dnmgr.shutdownDiagnosticsMessage;
@@ -1068,22 +1068,12 @@ public class StreamingAppMasterService extends CompositeService
    * Check for containers that were allocated in a previous attempt.
    * If the containers are still alive, wait for them to check in via heartbeat.
    */
-  private void checkContainerStatus()
+  private void previouslyAllocatedContainers(List<Container> containers)
   {
-    Collection<StreamingContainerAgent> containers = this.dnmgr.getContainerAgents();
-    for (StreamingContainerAgent ca : containers) {
-      ContainerId containerId = ConverterUtils.toContainerId(ca.container.getExternalId());
-      NodeId nodeId = ConverterUtils.toNodeId(ca.container.host);
-
-      // put container back into the allocated list
-      org.apache.hadoop.yarn.api.records.Token containerToken = null;
-      Resource resource = Resource.newInstance(ca.container.getAllocatedMemoryMB(), ca.container.getAllocatedVCores());
-      Priority priority = Priority.newInstance(ca.container.getResourceRequestPriority());
-      Container yarnContainer = Container.newInstance(containerId, nodeId, ca.container.nodeHttpAddress, resource, priority, containerToken);
-      this.allocatedContainers.put(containerId.toString(), new AllocatedContainer(yarnContainer));
-
-      // check the status
-      nmClient.getContainerStatusAsync(containerId, nodeId);
+    for (Container container : containers) {
+      this.allocatedContainers.put(container.getId().toString(), new AllocatedContainer(container));
+      //check the status
+      nmClient.getContainerStatusAsync(container.getId(), container.getNodeId());
     }
   }
 
@@ -1099,16 +1089,14 @@ public class StreamingAppMasterService extends CompositeService
   private AllocateResponse sendContainerAskToRM(List<ContainerRequest> containerRequests, List<ContainerRequest> removedContainerRequests, List<ContainerId> releasedContainers) throws YarnException, IOException
   {
     if (removedContainerRequests.size() > 0) {
-      LOG.info(" Removing container request: " + removedContainerRequests);
+      LOG.debug("Removing container request: {}", removedContainerRequests);
       for (ContainerRequest cr : removedContainerRequests) {
-        LOG.info("Removed container: {}", cr.toString());
         amRmClient.removeContainerRequest(cr);
       }
     }
     if (containerRequests.size() > 0) {
-      LOG.info("Asking RM for containers: " + containerRequests);
+      LOG.debug("Asking RM for containers: {}", containerRequests);
       for (ContainerRequest cr : containerRequests) {
-        LOG.info("Requested container: {} on host: [{}]", cr.toString(), StringUtils.join(cr.getNodes(), ", "));
         amRmClient.addContainerRequest(cr);
       }
     }

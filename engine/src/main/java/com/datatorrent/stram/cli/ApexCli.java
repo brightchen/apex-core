@@ -152,7 +152,19 @@ import sun.misc.SignalHandler;
 public class ApexCli
 {
   private static final Logger LOG = LoggerFactory.getLogger(ApexCli.class);
-  private Configuration conf;
+  private static String CONFIG_EXCLUSIVE = "exclusive";
+  private static String CONFIG_INCLUSIVE = "inclusive";
+
+  private static final String COLOR_RED = "\033[38;5;196m";
+  private static final String COLOR_YELLOW = "\033[0;93m";
+  private static final String FORMAT_BOLD = "\033[1m";
+
+  private static final String COLOR_RESET = "\033[0m";
+  private static final String ITALICS = "\033[3m";
+  private static final String APEX_HIGHLIGHT_COLOR_PROPERTY_NAME = "apex.cli.color.highlight";
+  private static final String APEX_HIGHLIGHT_COLOR_ENV_VAR_NAME = "APEX_HIGHLIGHT_COLOR";
+
+  protected Configuration conf;
   private FileSystem fs;
   private StramAgent stramAgent;
   private final YarnClient yarnClient = YarnClient.createYarnClient();
@@ -184,9 +196,7 @@ public class ApexCli
   private String forcePrompt;
   private String kerberosPrincipal;
   private String kerberosKeyTab;
-
-  private static String CONFIG_EXCLUSIVE = "exclusive";
-  private static String CONFIG_INCLUSIVE = "inclusive";
+  private String highlightColor = null;
 
   private static class FileLineReader extends ConsoleReader
   {
@@ -1153,6 +1163,22 @@ public class ApexCli
     }
   }
 
+  /**
+   * get highlight color based on env variable first and then config
+   *
+   */
+  protected String getHighlightColor()
+  {
+    if (highlightColor == null) {
+      highlightColor = System.getenv(APEX_HIGHLIGHT_COLOR_ENV_VAR_NAME);
+      if (StringUtils.isBlank(highlightColor)) {
+        highlightColor = conf.get(APEX_HIGHLIGHT_COLOR_PROPERTY_NAME, FORMAT_BOLD);
+      }
+      highlightColor = highlightColor.replace("\\e", "\033");
+    }
+    return highlightColor;
+  }
+
   public void init() throws IOException
   {
     conf = StramClientUtils.addDTSiteResources(new YarnConfiguration());
@@ -1532,9 +1558,9 @@ public class ApexCli
   private void printHelp(String command, CommandSpec commandSpec, PrintStream os)
   {
     if (consolePresent) {
-      os.print("\033[0;93m");
+      os.print(getHighlightColor());
       os.print(command);
-      os.print("\033[0m");
+      os.print(COLOR_RESET);
     } else {
       os.print(command);
     }
@@ -1547,7 +1573,7 @@ public class ApexCli
     if (commandSpec.requiredArgs != null) {
       for (Arg arg : commandSpec.requiredArgs) {
         if (consolePresent) {
-          os.print(" \033[3m" + arg + "\033[0m");
+          os.print(" " + ITALICS + arg + COLOR_RESET);
         } else {
           os.print(" <" + arg + ">");
         }
@@ -1556,7 +1582,7 @@ public class ApexCli
     if (commandSpec.optionalArgs != null) {
       for (Arg arg : commandSpec.optionalArgs) {
         if (consolePresent) {
-          os.print(" [\033[3m" + arg + "\033[0m");
+          os.print(" [" + ITALICS + arg + COLOR_RESET);
         } else {
           os.print(" [<" + arg + ">");
         }
@@ -2972,7 +2998,7 @@ public class ApexCli
   public static class GetOperatorClassesCommandLineOptions
   {
     final Options options = new Options();
-    final Option parent = add(new Option("parent", "Specify the parent class for the operators"));
+    final Option parent = add(new Option("parent", true, "Specify the parent class for the operators"));
 
     private Option add(Option opt)
     {
@@ -2984,13 +3010,13 @@ public class ApexCli
 
   private static GetOperatorClassesCommandLineOptions GET_OPERATOR_CLASSES_OPTIONS = new GetOperatorClassesCommandLineOptions();
 
-  private static class GetOperatorClassesCommandLineInfo
+  static class GetOperatorClassesCommandLineInfo
   {
     String parent;
     String[] args;
   }
 
-  private static GetOperatorClassesCommandLineInfo getGetOperatorClassesCommandLineInfo(String[] args) throws ParseException
+  static GetOperatorClassesCommandLineInfo getGetOperatorClassesCommandLineInfo(String[] args) throws ParseException
   {
     CommandLineParser parser = new PosixParser();
     GetOperatorClassesCommandLineInfo result = new GetOperatorClassesCommandLineInfo();

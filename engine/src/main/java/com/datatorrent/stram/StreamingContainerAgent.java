@@ -51,6 +51,7 @@ import com.datatorrent.stram.api.OperatorDeployInfo.InputDeployInfo;
 import com.datatorrent.stram.api.OperatorDeployInfo.OperatorType;
 import com.datatorrent.stram.api.OperatorDeployInfo.OutputDeployInfo;
 import com.datatorrent.stram.api.OperatorDeployInfo.UnifierDeployInfo;
+import com.datatorrent.stram.api.StreamingContainerUmbilicalProtocol.ShutdownType;
 import com.datatorrent.stram.api.StreamingContainerUmbilicalProtocol.StramToNodeRequest;
 import com.datatorrent.stram.api.StreamingContainerUmbilicalProtocol.StreamingContainerContext;
 import com.datatorrent.stram.engine.OperatorContext;
@@ -96,7 +97,7 @@ public class StreamingContainerAgent
     this.dnmgr = dnmgr;
   }
 
-  boolean shutdownRequested = false;
+  ShutdownType shutdownRequest = null;
   boolean stackTraceRequested = false;
 
   Set<PTOperator> deployOpers = Sets.newHashSet();
@@ -349,7 +350,7 @@ public class StreamingContainerAgent
       StreamCodec<?> codec = inputPortMeta.getValue(PortContext.STREAM_CODEC);
       if (codec == null) {
         // it cannot be this object that gets returned. Depending on this value is dangerous
-        codec = inputPortMeta.getPortObject().getStreamCodec();
+        codec = inputPortMeta.getPort().getStreamCodec();
         if (codec != null) {
           // don't create codec multiple times - it will assign a new identifier
           inputPortMeta.getAttributes().put(PortContext.STREAM_CODEC, codec);
@@ -484,4 +485,14 @@ public class StreamingContainerAgent
   }
 
   public volatile String containerStackTrace = null;
+
+  public void requestShutDown(ShutdownType type)
+  {
+    shutdownRequest = type;
+  }
+
+  public boolean isShutdownRequested()
+  {
+    return (shutdownRequest != null);
+  }
 }
