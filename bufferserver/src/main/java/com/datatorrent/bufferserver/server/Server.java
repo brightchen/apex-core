@@ -26,6 +26,7 @@ import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map.Entry;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
@@ -38,6 +39,20 @@ import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.common.collect.Lists;
+
+import io.netty.bootstrap.Bootstrap;
+import io.netty.buffer.Unpooled;
+import io.netty.channel.ChannelFuture;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelInboundHandlerAdapter;
+import io.netty.channel.ChannelPipeline;
+import io.netty.channel.DefaultChannelPromise;
+import io.netty.channel.EventLoopGroup;
+import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.channel.socket.nio.NioSocketChannel;
+import io.netty.handler.codec.bytes.ByteArrayEncoder;
+
 import com.datatorrent.bufferserver.internal.DataList;
 import com.datatorrent.bufferserver.internal.FastDataList;
 import com.datatorrent.bufferserver.internal.LogicalNode;
@@ -49,12 +64,18 @@ import com.datatorrent.bufferserver.packet.SubscribeRequestTuple;
 import com.datatorrent.bufferserver.packet.Tuple;
 import com.datatorrent.bufferserver.storage.Storage;
 import com.datatorrent.common.util.NameableThreadFactory;
+import com.datatorrent.common.util.Pair;
 import com.datatorrent.netlet.AbstractLengthPrependerClient;
 import com.datatorrent.netlet.DefaultEventLoop;
 import com.datatorrent.netlet.EventLoop;
 import com.datatorrent.netlet.Listener.ServerListener;
 import com.datatorrent.netlet.WriteOnlyLengthPrependerClient;
+import com.datatorrent.netlet.util.Slice;
 import com.datatorrent.netlet.util.VarInt;
+
+
+
+
 
 /**
  * The buffer server application<p>
@@ -246,6 +267,9 @@ public class Server implements ServerListener
     }
   }
 
+
+  private volatile Subscriber subscriber;
+
   /**
    *
    * @param request
@@ -253,6 +277,7 @@ public class Server implements ServerListener
    */
   private void handleSubscriberRequest(final SubscribeRequestTuple request, final SelectionKey key)
   {
+    logger.info("handling subscriber request...");
     try {
       serverHelperExecutor.submit(new Runnable()
       {
@@ -293,7 +318,10 @@ public class Server implements ServerListener
           if (oln != null) {
             oln.boot();
           }
-          final Subscriber subscriber = new Subscriber(ln, request.getBufferSize());
+
+          switchToNetty((java.nio.channels.SocketChannel)key.channel());
+
+          subscriber = new Subscriber(ln, request.getBufferSize());
           eventloop.submit(new Runnable()
           {
             @Override
@@ -315,6 +343,49 @@ public class Server implements ServerListener
           logger.error("Failed to close channel {}", key.channel(), ioe);
         }
       }
+    }
+  }
+
+
+  /**
+   * This class handle the message send from subscriber except the first register message.
+   * @author bright
+   *
+   */
+  private static class SubscriberHandler extends ChannelInboundHandlerAdapter
+  {
+    @Override
+    public void channelRead(ChannelHandlerContext ctx, Object msg)
+    {
+      logger.error("Unexpected message from subscriber: {}", msg);
+    }
+  }
+
+  public ChannelPipeline nettyPipeline;
+
+  private void switchToNetty(java.nio.channels.SocketChannel javaChannel)
+  {
+    NioSocketChannel nettyChannel = new NioSocketChannel(javaChannel);
+    EventLoopGroup group = new NioEventLoopGroup();
+    try {
+      Bootstrap b = new Bootstrap();
+      b.group(group);
+
+      //nettyPipeline = nettyChannel.pipeline().addFirst(new SubscriberHandler());
+      nettyPipeline = nettyChannel.pipeline().addFirst(new SubscriberHandler()).addLast(new ByteArrayEncoder());  //.addFirst(new LoggingHandler(LogLevel.INFO))
+      nettyPipeline = nettyChannel.pipeline().addFirst(new SubscriberHandler()).addLast(new ByteArrayEncoder());
+      io.netty.channel.EventLoop eventLoop = group.next();
+      nettyChannel.unsafe().register(eventLoop, new DefaultChannelPromise(nettyChannel, eventLoop));
+
+      //      if(!nettyChannel.isRegistered()) {
+      //        logger.error("Channel not registered yet.");
+      //      }
+      //nettyChannel.closeFuture().sync();
+      logger.info("switched to netty. javaChannel: {}", javaChannel);
+    } catch (Exception e) {
+      throw new RuntimeException(e);
+    } finally {
+      //group.shutdownGracefully();
     }
   }
 
@@ -373,6 +444,7 @@ public class Server implements ServerListener
   public DataList handlePublisherRequest(PublishRequestTuple request, AbstractLengthPrependerClient connection)
   {
     String identifier = request.getIdentifier();
+    logger.info("handling publisher request. identifier {}...", identifier);
 
     DataList dl = publisherBuffers.get(identifier);
 
@@ -502,6 +574,8 @@ public class Server implements ServerListener
             publisher = new Publisher(dl, (long)request.getBaseSeconds() << 32 | request.getWindowId());
           }
 
+          logger.info("The handler of server for publisher client switch to: {}; {}", publisher, System.identityHashCode(publisher));
+
           key.attach(publisher);
           key.interestOps(SelectionKey.OP_READ);
           publisher.registered(key);
@@ -594,6 +668,131 @@ public class Server implements ServerListener
     {
       return getClass().getSimpleName() + '@' + Integer.toHexString(hashCode()) + "{ln=" + ln + "}";
     }
+
+    //private List<ChannelFuture> writeFutures = Lists.newArrayList();
+    private List<Pair<ChannelFuture, Slice>> futureSlicePairs = Lists.newArrayList();
+    private int writeCount = 0;
+
+    /**
+     * this method is called by handle the selection key.
+     * The netty implementation should stand out of the netty eventloop.
+     */
+    @Override
+    public void write() throws IOException
+    {
+      submitWriteSendQueueData();
+    }
+
+    private void sendData(Slice slice)
+    {
+      writeLength(slice.length);
+
+      /*
+       * following implementation(send length first and then content and then flush) would got problem. the length could missed up
+       * expected to send "5, 1, 0, 0, 0, 1" but become "3, 1, 0, 0, 0, 1". why?
+       */
+//      {
+//        logger.info("sending length: {}", lengthSlice);
+//        nettyPipeline.channel().write(Unpooled.wrappedBuffer(lengthSlice.buffer, lengthSlice.offset, lengthSlice.length));
+//
+//        logger.info("sending message: {}", slice);
+//        ChannelFuture writeFuture = nettyPipeline.channel()
+//            .write(Unpooled.wrappedBuffer(slice.buffer, slice.offset, slice.length));
+//        nettyPipeline.channel().flush();
+//      }
+
+      byte[] sendBuffer = new byte[lengthSlice.length + slice.length];
+      System.arraycopy(lengthSlice.buffer, 0, sendBuffer, 0, lengthSlice.length);
+      System.arraycopy(slice.buffer, slice.offset, sendBuffer, lengthSlice.length, slice.length);
+      logger.info("sending message: {}", new Slice(sendBuffer));
+      ChannelFuture writeFuture = nettyPipeline.channel()
+          .writeAndFlush(Unpooled.wrappedBuffer(sendBuffer, 0, sendBuffer.length));
+
+      //writeFutures.add(writeFuture);
+      futureSlicePairs.add(new Pair<>(writeFuture, slice));
+      ++writeCount;
+    }
+
+    private Throwable failCause = null;
+    private int lastSentCount = 0;
+    /**
+     * check the future to make sure there has no error.
+     */
+    private void checkSendResult()
+    {
+      //check the send result batch
+      if (futureSlicePairs.size() > 0) {
+        Iterator<Pair<ChannelFuture, Slice>> futureSliceIter = futureSlicePairs.iterator();
+        while (futureSliceIter.hasNext()) {
+          Pair<ChannelFuture, Slice> item = futureSliceIter.next();
+          if (item.first.isDone()) {
+            if (!item.first.isSuccess()) {
+              if (failCause == null || !failCause.equals(item.first.cause())) {
+                logger.error("send one message failed due to: {}", item.first.cause());
+                failCause = item.first.cause();
+              }
+            }
+
+            //as the system reuse the slice instances and check to make sure the slice is not using when getting a slice for reuse
+            //the buffer of the slice need to set null
+            item.second.buffer = null;
+            futureSliceIter.remove();
+          }
+        }
+        int sentCount = writeCount - futureSlicePairs.size();
+        if(sentCount > lastSentCount && sentCount % 10000 == 0) {
+          //logger.info("sentCount: {}", sentCount);
+          lastSentCount = sentCount;
+        }
+        if(futureSlicePairs.size() == 0 && writeCount > 0) {
+          logger.info("All message wrote to subscriber client: {}", writeCount);
+        }
+      }
+    }
+
+    private Slice lengthSlice = new Slice(new byte[4]);
+
+    public void writeLength(int length)
+    {
+      int lengthOfLength = 0;
+      while ((length & ~0x7F) != 0) {
+        lengthSlice.buffer[lengthOfLength++] = (byte)((length & 0x7F) | 0x80);
+        length >>>= 7;
+      }
+      lengthSlice.buffer[lengthOfLength++] = (byte)length;
+      lengthSlice.length = lengthOfLength;
+    }
+
+    private boolean asynSend = true;
+    public void submitWriteSendQueueData()
+    {
+      while (sendQueue.size() > 0) {
+        /**
+         * The slices will be reused. But in netty case, we can't make sure the data has been sent.
+         * So, even clean the buffer after sent can't solve the "Unexpected slice" issue. see WriteOnlyClient.send
+         * So, clone the slice to solve the problem.
+         */
+        final Slice oldSlice = sendQueue.peek();
+        final Slice slice = new Slice(oldSlice.buffer, oldSlice.offset, oldSlice.length);
+        oldSlice.buffer = null;
+        if (asynSend) {
+          eventloop.submit(new Runnable()
+          {
+            @Override
+            public void run()
+            {
+              sendData(slice);
+            }
+          });
+        } else {
+          sendData(slice);
+        }
+        freeQueue.offer(sendQueue.poll());
+      }
+
+      checkSendResult();
+
+    }
   }
 
   /**
@@ -618,6 +817,7 @@ public class Server implements ServerListener
       //if (buffer[offset] == MessageType.BEGIN_WINDOW_VALUE || buffer[offset] == MessageType.END_WINDOW_VALUE) {
       //  logger.debug("server received {}", Tuple.getTuple(buffer, offset, size));
       //}
+      //logger.info("Publisher received a message: {}", new Slice(buffer, offset, size));
       dirty = true;
     }
 
@@ -657,11 +857,24 @@ public class Server implements ServerListener
     public void read(int len)
     {
       readExt(len);
+
+      //trigger send of the subscriber. use eventloop to send.
+//      if (subscriber != null) {
+//        eventloop.submit(new Runnable()
+//        {
+//          @Override
+//          public void run()
+//          {
+//            subscriber.writeSendQueueData();
+//          }
+//        });
+//      }
+
     }
 
     private boolean readExt(int len)
     {
-      //logger.debug("read {} bytes", len);
+      //logger.info("read {} bytes", len);
       writeOffset += len;
       do {
         if (size <= 0) {
