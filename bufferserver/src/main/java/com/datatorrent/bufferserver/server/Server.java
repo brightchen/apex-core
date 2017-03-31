@@ -740,15 +740,18 @@ public class Server implements ServerListener
     }
 
     //probably should not enable asynSend, as need another mechanism to remove the data from queue if create a task to send data.
-    private final int DEFAULT_BUFFER_SIZE = 10240;
+    private final int DEFAULT_BUFFER_SIZE = 1024;
     private int bufferSize = DEFAULT_BUFFER_SIZE;
     private byte[] buffer = new byte[bufferSize];
+    private int cacheFullCount = 0;
     public void writeQueueDataPackaged()
     {
       int cachedLen = 0;
       while (sendQueue.size() > 0) {
         if(requestSendBlocks > sentBlocks.get() + maxCacheBlocks) {
-          //logger.info("cache full. requestSendBlocks: {}, sentBlocks: {}; cached blocks: {}", requestSendBlocks, sentBlocks.get(), requestSendBlocks - sentBlocks.get());
+          if(cacheFullCount++ % 2000 == 0) {
+            logger.info("cache full. requestSendBlocks: {}, sentBlocks: {}; cached blocks: {}", requestSendBlocks, sentBlocks.get(), requestSendBlocks - sentBlocks.get());
+          }
           try {
             Thread.sleep(2);
           } catch (InterruptedException e) {
