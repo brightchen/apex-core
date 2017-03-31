@@ -25,7 +25,9 @@ import java.nio.channels.SelectionKey;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map.Entry;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
@@ -39,8 +41,13 @@ import java.util.concurrent.atomic.AtomicLong;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.commons.collections.Buffer;
+import org.apache.commons.collections.BufferUtils;
+import org.apache.commons.collections.buffer.CircularFifoBuffer;
+
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.Unpooled;
+import io.netty.channel.ChannelDuplexHandler;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
@@ -48,8 +55,9 @@ import io.netty.channel.ChannelPipeline;
 import io.netty.channel.DefaultChannelPromise;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.channel.socket.SocketChannelConfig;
 import io.netty.channel.socket.nio.NioSocketChannel;
-import io.netty.handler.codec.bytes.ByteArrayEncoder;
+import io.netty.handler.codec.MessageToMessageEncoder;
 import io.netty.util.concurrent.Future;
 import io.netty.util.concurrent.GenericFutureListener;
 
@@ -360,7 +368,43 @@ public class Server implements ServerListener
     }
   }
 
+  private static class SliceEncoder extends MessageToMessageEncoder<Slice>
+  {
+    @Override
+    protected void encode(ChannelHandlerContext ctx, Slice slice, List<Object> out) throws Exception
+    {
+      out.add(Unpooled.wrappedBuffer(slice.buffer, slice.offset, slice.length));
+    }
+  }
+
+
   public ChannelPipeline nettyPipeline;
+
+  private void configNettyChannel(NioSocketChannel nettyChannel)
+  {
+    StringBuilder sb = new StringBuilder();
+    SocketChannelConfig conf = nettyChannel.config();
+    int sendBufferSize = conf.getSendBufferSize();
+    sb.append("sendBufferSize: ").append(sendBufferSize).append("; ");
+    logger.info("Configure: {}", sb.toString());
+
+    conf.setSendBufferSize(2048000);
+    conf.setAutoRead(false);
+
+    sb.setLength(0);
+    sendBufferSize = conf.getSendBufferSize();
+    sb.append("sendBufferSize: ").append(sendBufferSize).append("; ");
+    logger.info("Configure: {}", sb.toString());
+  }
+
+  public static class ExceptionHandler extends ChannelDuplexHandler
+  {
+    @Override
+    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause)
+    {
+      logger.error("Got exception: {}", cause.getMessage());
+    }
+  }
 
   private void switchToNetty(java.nio.channels.SocketChannel javaChannel)
   {
@@ -370,21 +414,14 @@ public class Server implements ServerListener
       Bootstrap b = new Bootstrap();
       b.group(group);
 
-      //nettyPipeline = nettyChannel.pipeline().addFirst(new SubscriberHandler());
-      //nettyPipeline = nettyChannel.pipeline().addFirst(new SubscriberHandler()).addLast(new ByteArrayEncoder());  //.addFirst(new LoggingHandler(LogLevel.INFO))
-      nettyPipeline = nettyChannel.pipeline().addFirst(new SubscriberHandler()).addLast(new ByteArrayEncoder());
+      nettyPipeline = nettyChannel.pipeline().addFirst(new SubscriberHandler()).addLast(new SliceEncoder()).addLast(new ExceptionHandler());
       io.netty.channel.EventLoop eventLoop = group.next();
+      configNettyChannel(nettyChannel);
       nettyChannel.unsafe().register(eventLoop, new DefaultChannelPromise(nettyChannel, eventLoop));
 
-      //      if(!nettyChannel.isRegistered()) {
-      //        logger.error("Channel not registered yet.");
-      //      }
-      //nettyChannel.closeFuture().sync();
       logger.info("switched to netty. javaChannel: {}", javaChannel);
     } catch (Exception e) {
       throw new RuntimeException(e);
-    } finally {
-      //group.shutdownGracefully();
     }
   }
 
@@ -638,6 +675,9 @@ public class Server implements ServerListener
     public void connected()
     {
       super.connected();
+
+      bufferSizeChanged(bufferCapacity);
+
       serverHelperExecutor.submit(new Runnable()
       {
         @Override
@@ -668,10 +708,6 @@ public class Server implements ServerListener
       return getClass().getSimpleName() + '@' + Integer.toHexString(hashCode()) + "{ln=" + ln + "}";
     }
 
-    //private List<ChannelFuture> writeFutures = Lists.newArrayList();
-    //private List<Pair<ChannelFuture, Slice>> futureSlicePairs = Lists.newArrayList();
-    private int writeCount = 0;
-
     /**
      * this method is called by handle the selection key.
      * The netty implementation should stand out of the netty eventloop.
@@ -679,18 +715,16 @@ public class Server implements ServerListener
     @Override
     public void write() throws IOException
     {
-      submitWriteSendQueueData();
-    }
-
-    private void sendData(Slice slice)
-    {
-      sendData(slice.buffer, slice.offset, slice.length);
+      sendQueueDataPackaged();
     }
 
     private AtomicLong sentBlocks = new AtomicLong(0);
     private long requestSendBlocks = 0;
-    private final long maxCacheBlocks = 1000;
 
+    private int maxLen = 0;
+    private int minLen = Integer.MAX_VALUE;
+    private long totalLen = 0;
+    private int totalcount = 0;
     /**
      * The input data should already prefixed with length
      * @param buffer
@@ -700,86 +734,18 @@ public class Server implements ServerListener
     @SuppressWarnings({ "unchecked", "rawtypes" })
     private void sendData(byte[] buffer, int offset, int length)
     {
-      logger.info("sending: {}", new Slice(buffer, offset, length));
+      totalLen += length;
+      maxLen = maxLen < length ? length : maxLen;
+      minLen = minLen > length ? length : minLen;
+      if (++totalcount % 100000 == 0) {
+        logger.info("totalCount: {}; minLen: {}; maxLen: {}; average: {}", totalcount, minLen, maxLen,
+            totalLen / totalcount);
+      }
       ++requestSendBlocks;
 
-
-      /*
-       * following implementation(send length first and then content and then flush) would got problem. the length could missed up
-       * expected to send "5, 1, 0, 0, 0, 1" but become "3, 1, 0, 0, 0, 1". why?
-       */
-//      {
-//        logger.info("sending length: {}", lengthSlice);
-//        nettyPipeline.channel().write(Unpooled.wrappedBuffer(lengthSlice.buffer, lengthSlice.offset, lengthSlice.length));
-//
-//        logger.info("sending message: {}", slice);
-//        ChannelFuture writeFuture = nettyPipeline.channel()
-//            .write(Unpooled.wrappedBuffer(slice.buffer, slice.offset, slice.length));
-//        nettyPipeline.channel().flush();
-//      }
-
-//      byte[] sendBuffer = new byte[lengthSlice.length + length];
-//      System.arraycopy(lengthSlice.buffer, 0, sendBuffer, 0, lengthSlice.length);
-//      System.arraycopy(buffer, offset, sendBuffer, lengthSlice.length, length);
-      //logger.info("sending message: {}", new Slice(sendBuffer));
-      //both are ok
-//      ChannelFuture writeFuture = nettyPipeline.channel()
-//          .writeAndFlush(Unpooled.wrappedBuffer(sendBuffer, 0, sendBuffer.length));
-      ChannelFuture writeFuture = nettyPipeline.writeAndFlush(Unpooled.wrappedBuffer(buffer, offset, length));
-      writeFuture.addListener(new GenericFutureListener(){
-        @Override
-        public void operationComplete(Future future) throws Exception
-        {
-          if(!future.isSuccess()) {
-            logger.warn("A package send failed due to: " + future.cause().getMessage());
-          }
-          if (future.isDone()) {
-            sentBlocks.incrementAndGet();
-          }
-        }
-      });
-
-      //writeFutures.add(writeFuture);
-      //futureSlicePairs.add(new Pair<>(writeFuture, slice));
-      ++writeCount;
+      ChannelFuture future = nettyPipeline.write(new Slice(buffer, offset, length));
+      future.addListener(new SubscriberFutureListener(buffer, freeBuffers, sentBlocks));
     }
-
-//    private Throwable failCause = null;
-//    private int lastSentCount = 0;
-    /**
-     * check the future to make sure there has no error.
-     */
-//    private void checkSendResult()
-//    {
-//      //check the send result batch
-//      if (futureSlicePairs.size() > 0) {
-//        Iterator<Pair<ChannelFuture, Slice>> futureSliceIter = futureSlicePairs.iterator();
-//        while (futureSliceIter.hasNext()) {
-//          Pair<ChannelFuture, Slice> item = futureSliceIter.next();
-//          if (item.first.isDone()) {
-//            if (!item.first.isSuccess()) {
-//              if (failCause == null || !failCause.equals(item.first.cause())) {
-//                logger.error("send one message failed due to: {}", item.first.cause());
-//                failCause = item.first.cause();
-//              }
-//            }
-//
-//            //as the system reuse the slice instances and check to make sure the slice is not using when getting a slice for reuse
-//            //the buffer of the slice need to set null
-//            item.second.buffer = null;
-//            futureSliceIter.remove();
-//          }
-//        }
-//        int sentCount = writeCount - futureSlicePairs.size();
-//        if(sentCount > lastSentCount && sentCount % 10000 == 0) {
-//          //logger.info("sentCount: {}", sentCount);
-//          lastSentCount = sentCount;
-//        }
-//        if(futureSlicePairs.size() == 0 && writeCount > 0) {
-//          logger.info("All message wrote to subscriber client: {}", writeCount);
-//        }
-//      }
-//    }
 
     public int writeLength(byte[] buffer, int offset, int length)
     {
@@ -792,60 +758,165 @@ public class Server implements ServerListener
       return lengthOfLength;
     }
 
-    //probably should not enable asynSend, as need another mechanism to remove the data from queue if create a task to send data.
-    private final int DEFAULT_BUFFER_SIZE = 1024;
-    private int bufferSize = DEFAULT_BUFFER_SIZE;
-    private byte[] buffer = new byte[bufferSize];
-    public void submitWriteSendQueueData()
-    {
-      int cachedLen = 0;
-      while (sendQueue.size() > 0) {
-        if(requestSendBlocks > sentBlocks.get() + maxCacheBlocks) {
-          //logger.info("cache full. requestSendBlocks: {}, sentBlocks: {}; cached blocks: {}", requestSendBlocks, sentBlocks.get(), requestSendBlocks - sentBlocks.get());
-          try {
-            Thread.sleep(100);
-          } catch (InterruptedException e) {
-            logger.warn("sleep exception.", e);
-          }
-          return;
-        }
+    //The buffer can be reused only after the data has been sent.
+    private final int DEFAULT_BUFFER_CAPACITY = 204800;
+    private int bufferCapacity = DEFAULT_BUFFER_CAPACITY;
 
+    private final int DEFAULT_MAX_BUFFER_NUM = 100;
+    private int maxBufferNum = DEFAULT_MAX_BUFFER_NUM;
+    private Buffer freeBuffers;
+
+    private int cacheFullCount = 0;
+
+    @SuppressWarnings("unchecked")
+    public void sendQueueDataPackaged()
+    {
+      byte[] buffer = getFreeBuffer();
+      if (buffer == null) {
+        return;
+      }
+
+      int cachedLen = 0;
+      boolean flushed = true;
+      while (sendQueue.size() > 0) {
         /**
-         * The slices will be reused. But in netty case, we can't make sure the data has been sent.
-         * So, even clean the buffer after sent can't solve the "Unexpected slice" issue. see WriteOnlyClient.send
-         * So, clone the slice to solve the problem.
+         * The slices will be reused. But in netty case, we can't make sure the
+         * data has been sent. So, even clean the buffer after sent can't solve
+         * the "Unexpected slice" issue. see WriteOnlyClient.send So, clone the
+         * slice to solve the problem.
          */
-        final Slice oldSlice = sendQueue.peek();
+        final Slice oldSlice = sendQueue.poll();
         final Slice slice = new Slice(oldSlice.buffer, oldSlice.offset, oldSlice.length);
         oldSlice.buffer = null;
+        freeQueue.offer(oldSlice);
 
-        if(cachedLen + slice.length + 4 >= bufferSize) {
-          if(cachedLen > 0) {
+        if (cachedLen + slice.length + 4 >= bufferCapacity) {
+          if (cachedLen > 0) {
             //send cached first
             sendData(buffer, 0, cachedLen);
+            flushed = false;
             cachedLen = 0;
+
+            //new buffer
+            buffer = getFreeBuffer();
+            if (buffer == null) {
+              if (!flushed) {
+                nettyPipeline.flush();
+              }
+              return;
+            }
           }
         }
 
-        if(slice.length + 4 >= bufferSize) {
+        if (slice.length + 4 >= bufferCapacity) {
           //the cached data must have been sent.
-          buffer = new byte[slice.length + 4];
+          logger.error("The slice is too large");
+          throw new UnsupportedOperationException("The slice is too large");
         }
+
         //concatenate this slice
         int lenOfLen = writeLength(buffer, cachedLen, slice.length);
         System.arraycopy(slice.buffer, slice.offset, buffer, cachedLen + lenOfLen, slice.length);
         cachedLen += slice.length + lenOfLen;
-
-        sendData(buffer, 0, cachedLen);
-        cachedLen = 0;
-
-        freeQueue.offer(sendQueue.poll());
       }
-      if(cachedLen > 0) {
+
+      if (cachedLen > 0) {
         sendData(buffer, 0, cachedLen);
-        cachedLen = 0;
+        flushed = false;
+      } else {
+        //the buffer was not used, add to queue
+        freeBuffers.add(buffer);
       }
-      //checkSendResult();
+
+      //force to flush
+      if (!flushed) {
+        nettyPipeline.flush();
+      }
+    }
+
+    private void sleepSlient(long millis, int nanos)
+    {
+      try {
+        //force to flush
+        Thread.sleep(millis, nanos);
+      } catch (InterruptedException e) {
+        logger.warn("sleep exception.", e);
+      }
+    }
+
+    private byte[] getFreeBuffer()
+    {
+      byte[] buffer = null;
+      if (freeBuffers.size() == 0) {
+        if (cacheFullCount++ % 2000 == 0) {
+          long sentBlocks1 = sentBlocks.get();
+          logger.info("cache full. requestSendBlocks: {}, sentBlocks: {}; cached blocks: {}; freeBuffers size: {}; this: {}",
+              requestSendBlocks, sentBlocks1, requestSendBlocks - sentBlocks1, freeBuffers.size(), System.identityHashCode(this));
+        }
+      } else {
+        //the freeBuffers should not empty as the remove items only in this thread. another thread add item to the freeBuffers.
+        buffer = (byte[])freeBuffers.remove();
+      }
+      return buffer;
+    }
+
+    /**
+     * create buffers with new capacity. old buffers will be garbage collected
+     * @param newCapacity
+     */
+    @SuppressWarnings("unchecked")
+    private void bufferSizeChanged(int newCapacity)
+    {
+      bufferCapacity = newCapacity;
+
+      if (freeBuffers == null) {
+        freeBuffers = BufferUtils.synchronizedBuffer(new CircularFifoBuffer(maxBufferNum));
+      } else {
+        freeBuffers.clear();
+      }
+      //initialize the free buffer
+      for (int i = 0; i < maxBufferNum; ++i) {
+        freeBuffers.add(new byte[bufferCapacity]);
+      }
+      logger.info("freeBuffers size: {}; maxBufferNum: {}; bufferCapacity: {}", freeBuffers.size(), maxBufferNum,
+          bufferCapacity);
+    }
+  }
+
+
+  @SuppressWarnings("rawtypes")
+  private static class SubscriberFutureListener implements GenericFutureListener
+  {
+    private final byte[] buffer;
+    private final Collection<byte[]> freeBufferQueue;
+    private final AtomicLong sentBlocks;
+
+    public SubscriberFutureListener(byte[] buffer, Collection<byte[]> freeBufferQueue, AtomicLong sentBlocks)
+    {
+      this.buffer = buffer;
+      this.freeBufferQueue = freeBufferQueue;
+      this.sentBlocks = sentBlocks;
+    }
+
+    @Override
+    public void operationComplete(Future future) throws Exception
+    {
+      if (!future.isSuccess()) {
+        logger.warn("A package send failed due to: " + future.cause().getMessage());
+      }
+      if (future.isDone()) {
+        try {
+          boolean added  = freeBufferQueue.add(buffer);
+          if (!added) {
+            logger.error("!!!Can't add released buffer: {}", System.identityHashCode(buffer));
+          }
+        } catch (Exception e) {
+          throw new RuntimeException("something wrong.", e);
+        }
+        sentBlocks.incrementAndGet();
+      } else {
+        logger.error("!!!Unexpected result of future: {}", future);
+      }
     }
   }
 
