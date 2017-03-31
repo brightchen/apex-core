@@ -40,7 +40,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import io.netty.bootstrap.Bootstrap;
-import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
@@ -679,12 +678,7 @@ public class Server implements ServerListener
     @Override
     public void write() throws IOException
     {
-      submitWriteSendQueueData();
-    }
-
-    private void sendData(Slice slice)
-    {
-      sendData(slice.buffer, slice.offset, slice.length);
+      writeQueueDataPackaged();
     }
 
     private AtomicLong sentBlocks = new AtomicLong(0);
@@ -700,32 +694,21 @@ public class Server implements ServerListener
     @SuppressWarnings({ "unchecked", "rawtypes" })
     private void sendData(byte[] buffer, int offset, int length)
     {
-      logger.info("sending: {}", new Slice(buffer, offset, length));
+//      logger.info("sending: {}", new Slice(buffer, offset, length));
       ++requestSendBlocks;
 
 
-      /*
-       * following implementation(send length first and then content and then flush) would got problem. the length could missed up
-       * expected to send "5, 1, 0, 0, 0, 1" but become "3, 1, 0, 0, 0, 1". why?
-       */
-//      {
-//        logger.info("sending length: {}", lengthSlice);
-//        nettyPipeline.channel().write(Unpooled.wrappedBuffer(lengthSlice.buffer, lengthSlice.offset, lengthSlice.length));
-//
-//        logger.info("sending message: {}", slice);
-//        ChannelFuture writeFuture = nettyPipeline.channel()
-//            .write(Unpooled.wrappedBuffer(slice.buffer, slice.offset, slice.length));
-//        nettyPipeline.channel().flush();
-//      }
-
-//      byte[] sendBuffer = new byte[lengthSlice.length + length];
-//      System.arraycopy(lengthSlice.buffer, 0, sendBuffer, 0, lengthSlice.length);
-//      System.arraycopy(buffer, offset, sendBuffer, lengthSlice.length, length);
-      //logger.info("sending message: {}", new Slice(sendBuffer));
-      //both are ok
-//      ChannelFuture writeFuture = nettyPipeline.channel()
-//          .writeAndFlush(Unpooled.wrappedBuffer(sendBuffer, 0, sendBuffer.length));
-      ChannelFuture writeFuture = nettyPipeline.writeAndFlush(Unpooled.wrappedBuffer(buffer, offset, length));
+      //send byte[] as object and Unpooled.wrappedBuffer are different.
+      //Unpooled.wrappedBuffer seems add some head before the message
+      //how to send byte[] using ByteBuf??
+      //ChannelFuture writeFuture = nettyPipeline.writeAndFlush(Unpooled.wrappedBuffer(buffer, offset, length));
+      byte[] sendBuffer = buffer;
+      if(offset != 0 || length != buffer.length) {
+        sendBuffer = new byte[length];
+        System.arraycopy(buffer, offset, sendBuffer, 0, length);
+      }
+      //write(byte[]) must configure with ByteArrayEncoder
+      ChannelFuture writeFuture = nettyPipeline.writeAndFlush(sendBuffer);
       writeFuture.addListener(new GenericFutureListener(){
         @Override
         public void operationComplete(Future future) throws Exception
@@ -744,42 +727,6 @@ public class Server implements ServerListener
       ++writeCount;
     }
 
-//    private Throwable failCause = null;
-//    private int lastSentCount = 0;
-    /**
-     * check the future to make sure there has no error.
-     */
-//    private void checkSendResult()
-//    {
-//      //check the send result batch
-//      if (futureSlicePairs.size() > 0) {
-//        Iterator<Pair<ChannelFuture, Slice>> futureSliceIter = futureSlicePairs.iterator();
-//        while (futureSliceIter.hasNext()) {
-//          Pair<ChannelFuture, Slice> item = futureSliceIter.next();
-//          if (item.first.isDone()) {
-//            if (!item.first.isSuccess()) {
-//              if (failCause == null || !failCause.equals(item.first.cause())) {
-//                logger.error("send one message failed due to: {}", item.first.cause());
-//                failCause = item.first.cause();
-//              }
-//            }
-//
-//            //as the system reuse the slice instances and check to make sure the slice is not using when getting a slice for reuse
-//            //the buffer of the slice need to set null
-//            item.second.buffer = null;
-//            futureSliceIter.remove();
-//          }
-//        }
-//        int sentCount = writeCount - futureSlicePairs.size();
-//        if(sentCount > lastSentCount && sentCount % 10000 == 0) {
-//          //logger.info("sentCount: {}", sentCount);
-//          lastSentCount = sentCount;
-//        }
-//        if(futureSlicePairs.size() == 0 && writeCount > 0) {
-//          logger.info("All message wrote to subscriber client: {}", writeCount);
-//        }
-//      }
-//    }
 
     public int writeLength(byte[] buffer, int offset, int length)
     {
@@ -793,17 +740,17 @@ public class Server implements ServerListener
     }
 
     //probably should not enable asynSend, as need another mechanism to remove the data from queue if create a task to send data.
-    private final int DEFAULT_BUFFER_SIZE = 1024;
+    private final int DEFAULT_BUFFER_SIZE = 10240;
     private int bufferSize = DEFAULT_BUFFER_SIZE;
     private byte[] buffer = new byte[bufferSize];
-    public void submitWriteSendQueueData()
+    public void writeQueueDataPackaged()
     {
       int cachedLen = 0;
       while (sendQueue.size() > 0) {
         if(requestSendBlocks > sentBlocks.get() + maxCacheBlocks) {
           //logger.info("cache full. requestSendBlocks: {}, sentBlocks: {}; cached blocks: {}", requestSendBlocks, sentBlocks.get(), requestSendBlocks - sentBlocks.get());
           try {
-            Thread.sleep(100);
+            Thread.sleep(2);
           } catch (InterruptedException e) {
             logger.warn("sleep exception.", e);
           }
@@ -836,16 +783,12 @@ public class Server implements ServerListener
         System.arraycopy(slice.buffer, slice.offset, buffer, cachedLen + lenOfLen, slice.length);
         cachedLen += slice.length + lenOfLen;
 
-        sendData(buffer, 0, cachedLen);
-        cachedLen = 0;
-
         freeQueue.offer(sendQueue.poll());
       }
       if(cachedLen > 0) {
         sendData(buffer, 0, cachedLen);
         cachedLen = 0;
       }
-      //checkSendResult();
     }
   }
 

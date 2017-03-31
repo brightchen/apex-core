@@ -58,11 +58,11 @@ public class WorkflowTest
     public void onMessage(byte[] newBuffer, int newOffset, int newSize)
     {
       if(newBuffer != null && newSize > 0) {
-//        logger.info("new bytes: {}", new Slice(newBuffer, newOffset, newSize));
+        logger.info("new bytes: {}", new Slice(newBuffer, newOffset, newSize));
         System.arraycopy(newBuffer, newOffset, buffer, size, newSize);
         size += newSize;
       }
-//      logger.info("tupleCount: {}; total bytes: {}", tupleCount.get(), new Slice(buffer, 0, size));
+      logger.info("tupleCount: {}; total bytes: {}", tupleCount.get(), new Slice(buffer, 0, size));
       Tuple tuple = null;
       try {
         tuple = Tuple.getTuple(buffer, 0, size);
