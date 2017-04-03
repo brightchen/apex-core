@@ -20,7 +20,7 @@ import com.datatorrent.netlet.util.Slice;
 
 public class WorkflowTest
 {
-  private static byte[] content = "123456789".getBytes();
+  private static byte[] content = "123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890".getBytes();
 
   public static class TestSubscriber extends Subscriber
   {
