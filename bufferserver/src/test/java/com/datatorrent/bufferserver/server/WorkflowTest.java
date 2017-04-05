@@ -3,6 +3,7 @@ package com.datatorrent.bufferserver.server;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
+import java.util.Arrays;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -33,15 +34,20 @@ public class WorkflowTest
 
 
     private int lastBufferPosition = 0;
+    ByteBuffer lastByteBuffer =  null;
     @Override
     public void read(final int len)
     {
       ByteBuffer byteBuffer = buffer();
+      if(byteBuffer != lastByteBuffer) {
+        //buffer changed
+        lastBufferPosition = 0;
+      }
       int size = byteBuffer.position()-lastBufferPosition;
       byte[] bytes = new byte[size];
 
       System.arraycopy(byteBuffer.array(), lastBufferPosition, bytes, 0, size);
-      logger.info("current read len: {}; size: {}; message: {}", len, size, new Slice(bytes));
+      //logger.info("current read len: {}; size: {}; message: {}", len, size, Arrays.toString(bytes));
       lastBufferPosition = byteBuffer.position();
       super.read(len);
       bytesCount += len;
@@ -58,20 +64,22 @@ public class WorkflowTest
     public void onMessage(byte[] newBuffer, int newOffset, int newSize)
     {
       if(newBuffer != null && newSize > 0) {
-        logger.info("new bytes: {}", new Slice(newBuffer, newOffset, newSize));
+//        logger.info("new bytes: {}", new Slice(newBuffer, newOffset, newSize));
         System.arraycopy(newBuffer, newOffset, buffer, size, newSize);
         size += newSize;
       }
-      logger.info("tupleCount: {}; total bytes: {}", tupleCount.get(), new Slice(buffer, 0, size));
+//      logger.info("tupleCount: {}; total bytes: {}", tupleCount.get(), new Slice(buffer, 0, size));
+
       Tuple tuple = null;
       try {
         tuple = Tuple.getTuple(buffer, 0, size);
       } catch (Exception e) {
         //wait for the leftover bytes
-        if(size > 20) {
+        if(size > content.length * 2) {
           //the bytes should be long enough, it should be invalid message
           Assert.assertFalse("Probably invalid message: " +  new Slice(buffer, 0, size), true);
         }
+        logger.warn("parse tuple exception: {}", e.getMessage());
         return;
       }
       tupleCount.incrementAndGet();
@@ -107,7 +115,7 @@ public class WorkflowTest
           break;
 
         default:
-          Assert.assertFalse("Unexpected tuple type: " + tuple.getType() + "; tupleCount: " + tupleCount.get() + "; data: " + new Slice(buffer, 0, size), true);
+          Assert.assertFalse("Unexpected tuple type: " + tuple.getType() + "; tupleCount: " + tupleCount.get() + "; data: " + Arrays.toString(buffer), true);
           break;
       }
 
@@ -166,33 +174,47 @@ public class WorkflowTest
     bsp.activate(null, 0L);
 
     final int loops = 100;
+    final int tuplesOfEachWindow = 1000;
     int windowId = 1;
     byte[] contentMessage = PayloadTuple.getSerializedTuple(1, content.length);
     System.arraycopy(content, 0, contentMessage, 5, content.length);
+    long startTime = System.currentTimeMillis();
     for (int i = 0; i < loops; ++i, ++windowId) {
       byte[] msg = BeginWindowTuple.getSerializedTuple(windowId);
       bsp.write(msg);
 
       //msg = PayloadTuple.getSerializedTuple(0, 0);
       //msg = PayloadTuple.getSerializedTuple(1, content.length);
-
-      bsp.write(contentMessage);
+      for(int j=0; j<tuplesOfEachWindow; ++j) {
+        bsp.write(contentMessage);
+      }
 
       msg = EndWindowTuple.getSerializedTuple(windowId);
       bsp.write(msg);
+
+      Thread.sleep(1);
     }
 
     //each loop has beginWindow, message and endWindow, totally 9 bytes;
     //when loops larger or equal 64, the windowId become two bytes; and each loop is 11 bytes
     //final int expectedBytes = loops < 64 ? loops * 12 : (loops - 63) * 14 + 63 * 12;
-    final int expectedTupleCount = loops * 3;
+    final int expectedTupleCount = loops * (2 + tuplesOfEachWindow);
     final int spinCount = 60000;
+    final int checkSpan = 1;
     for (int i = 0; i < spinCount; ++i) {
+      if(i > 0 && checkSpan * i % 1000 == 0) {
+        long spentTime = (System.currentTimeMillis() - startTime);
+        logger.info("Spent time: {}; tuples: {}; average: {}", spentTime, bss.tupleCount.get(),
+            bss.tupleCount.get() * 1000 / spentTime);
+      }
       if (bss.tupleCount.get() >= expectedTupleCount) {
         break;
       }
-      Thread.sleep(10);
+      Thread.sleep(checkSpan);
     }
+    long spentTime = (System.currentTimeMillis() - startTime);
+    logger.info("Spent time: {}; tuples: {}; average: {}", spentTime, bss.tupleCount.get(),
+        bss.tupleCount.get() * 1000 / spentTime);
 
     //logger.info("bytesCount: {}, expected bytes count {}; tupleCount: {}, expected tuple count {}", bss.bytesCount, expectedBytes, bss.tupleCount.get(), expectedTupleCount);
     //Assert.assertTrue("expectedBytes = " + expectedBytes + "; actual = " + bss.bytesCount, bss.bytesCount == expectedBytes);
