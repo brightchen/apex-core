@@ -53,6 +53,7 @@ import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.codec.MessageToMessageEncoder;
+import io.netty.handler.codec.bytes.ByteArrayEncoder;
 import io.netty.util.concurrent.Future;
 import io.netty.util.concurrent.GenericFutureListener;
 
@@ -386,8 +387,8 @@ public class Server implements ServerListener
       b.group(group);
 
       //nettyPipeline = nettyChannel.pipeline().addFirst(new SubscriberHandler());
-      //nettyPipeline = nettyChannel.pipeline().addFirst(new SubscriberHandler()).addLast(new ByteArrayEncoder());  //.addFirst(new LoggingHandler(LogLevel.INFO))
-      nettyPipeline = nettyChannel.pipeline().addFirst(new SubscriberHandler()).addLast(new SliceEncoder());
+      nettyPipeline = nettyChannel.pipeline().addFirst(new SubscriberHandler()).addLast(new ByteArrayEncoder());  //.addFirst(new LoggingHandler(LogLevel.INFO))
+      //nettyPipeline = nettyChannel.pipeline().addFirst(new SubscriberHandler()).addLast(new SliceEncoder());
       io.netty.channel.EventLoop eventLoop = group.next();
       nettyChannel.unsafe().register(eventLoop, new DefaultChannelPromise(nettyChannel, eventLoop));
 
@@ -728,90 +729,54 @@ public class Server implements ServerListener
 //      logger.info("sending: {}", new Slice(buffer, offset, length));
       ++requestSendBlocks;
 
-
       //send byte[] as object and Unpooled.wrappedBuffer are different.
       //Unpooled.wrappedBuffer seems add some head before the message
       //how to send byte[] using ByteBuf??
-      //ChannelFuture writeFuture = nettyPipeline.writeAndFlush(Unpooled.wrappedBuffer(buffer, offset, length));
-//      byte[] sendBuffer = buffer;
-//      if(offset != 0 || length != buffer.length) {
-//        sendBuffer = new byte[length];
-//        System.arraycopy(buffer, offset, sendBuffer, 0, length);
-//      }
-      //write(byte[]) must configure with ByteArrayEncoder
 
-      //writeFutures.add(writeFuture);
-      //futureSlicePairs.add(new Pair<>(writeFuture, slice));
-
-      sendDataAsSlice(buffer, offset, length);
-      //sendDataAsBytes(buffer, offset, length);
+      //ChannelFuture writeFuture = sendDataAsSlice(buffer, offset, length);
+      ChannelFuture writeFuture = sendDataAsBytes(buffer, offset, length);
       ++writeCount;
+
+      final byte[] sentBuffer = buffer;
+
+      writeFuture.addListener(new GenericFutureListener(){
+        @Override
+        public void operationComplete(Future future) throws Exception
+        {
+          if(!future.isSuccess()) {
+            logger.warn("A package send failed due to: " + future.cause().getMessage());
+          }
+          if (future.isDone()) {
+            //release the buffer
+            if(bufferCapacity == sentBuffer.length) {
+              //should verify the buffer in case buffer changed
+              freeBuffers.add(sentBuffer);
+              if(++sentBufferNum % 10000 == 0) {
+                logger.info("sentBufferNum: {}", sentBufferNum);
+              }
+            } else {
+              logger.info("release old buffer: {}; buffer size: {}", sentBuffer, sentBuffer.length);
+            }
+            sentBlocks.incrementAndGet();
+          }
+        }
+      });
     }
 
-    private void sendDataAsBytes(byte[] buffer, int offset, int length)
+    private ChannelFuture sendDataAsBytes(byte[] buffer, int offset, int length)
     {
       byte[] sendBuffer = buffer;
       if(offset != 0 || length != buffer.length) {
         sendBuffer = new byte[length];
         System.arraycopy(buffer, offset, sendBuffer, 0, length);
       }
-    //write(byte[]) must configure with ByteArrayEncoder
-      ChannelFuture writeFuture = nettyPipeline.writeAndFlush(sendBuffer);
-      final byte[] sentBuffer = buffer;
-
-      writeFuture.addListener(new GenericFutureListener(){
-        @Override
-        public void operationComplete(Future future) throws Exception
-        {
-          if(!future.isSuccess()) {
-            logger.warn("A package send failed due to: " + future.cause().getMessage());
-          }
-          if (future.isDone()) {
-            //release the buffer
-            if(bufferCapacity == sentBuffer.length) {
-              //should verify the buffer in case buffer changed
-              freeBuffers.add(sentBuffer);
-              if(++sentBufferNum % 10000 == 0) {
-                logger.info("sentBufferNum: {}", sentBufferNum);
-              }
-            } else {
-              logger.info("release old buffer: {}; buffer size: {}", sentBuffer, sentBuffer.length);
-            }
-            sentBlocks.incrementAndGet();
-          }
-        }
-      });
-
+      //write(byte[]) must configure with ByteArrayEncoder
+      return nettyPipeline.writeAndFlush(sendBuffer);
     }
 
-    private void sendDataAsSlice(byte[] buffer, int offset, int length)
+    private ChannelFuture sendDataAsSlice(byte[] buffer, int offset, int length)
     {
-      ChannelFuture writeFuture = nettyPipeline.writeAndFlush(new Slice(buffer, offset, length));
-      final byte[] sentBuffer = buffer;
-
-      writeFuture.addListener(new GenericFutureListener(){
-        @Override
-        public void operationComplete(Future future) throws Exception
-        {
-          if(!future.isSuccess()) {
-            logger.warn("A package send failed due to: " + future.cause().getMessage());
-          }
-          if (future.isDone()) {
-            //release the buffer
-            if(bufferCapacity == sentBuffer.length) {
-              //should verify the buffer in case buffer changed
-              freeBuffers.add(sentBuffer);
-              if(++sentBufferNum % 10000 == 0) {
-                logger.info("sentBufferNum: {}", sentBufferNum);
-              }
-            } else {
-              logger.info("release old buffer: {}; buffer size: {}", sentBuffer, sentBuffer.length);
-            }
-            sentBlocks.incrementAndGet();
-          }
-        }
-      });
-
+      return nettyPipeline.writeAndFlush(new Slice(buffer, offset, length));
     }
 
     public int writeLength(byte[] buffer, int offset, int length)
@@ -830,7 +795,7 @@ public class Server implements ServerListener
     private int bufferCapacity = DEFAULT_BUFFER_CAPACITY;
     //private byte[] buffer = new byte[bufferCapacity];
     //private byte[][] buffers;
-    private final int DEFAULT_MAX_BUFFER_NUM = 10;
+    private final int DEFAULT_MAX_BUFFER_NUM = 5;
     private int maxBufferNum = DEFAULT_MAX_BUFFER_NUM;
     private volatile Queue<byte[]> freeBuffers = new ConcurrentLinkedQueue<>();
 
