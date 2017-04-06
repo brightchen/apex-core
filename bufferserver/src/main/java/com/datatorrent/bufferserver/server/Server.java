@@ -40,6 +40,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import io.netty.bootstrap.Bootstrap;
+import io.netty.channel.ChannelDuplexHandler;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
@@ -47,6 +48,7 @@ import io.netty.channel.ChannelPipeline;
 import io.netty.channel.DefaultChannelPromise;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.channel.socket.SocketChannelConfig;
 import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.codec.bytes.ByteArrayEncoder;
 import io.netty.util.concurrent.Future;
@@ -359,7 +361,48 @@ public class Server implements ServerListener
     }
   }
 
+  public static class ExceptionHandler extends ChannelDuplexHandler {
+
+    @Override
+    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+        logger.info("Got exception: {}", cause.getMessage());
+    }
+
+//    @Override
+//    public void write(ChannelHandlerContext ctx, Object msg, ChannelPromise promise) {
+//        ctx.write(msg, promise.addListener(new ChannelFutureListener() {
+//            @Override
+//            public void operationComplete(ChannelFuture future) {
+//                if (!future.isSuccess()) {
+//                    // Handle write exception here...
+//                }
+//            }
+//        }));
+//    }
+
+    // ... override more outbound methods to handle their exceptions as well
+  }
+
   public ChannelPipeline nettyPipeline;
+
+  private void configNettyChannel(NioSocketChannel nettyChannel)
+  {
+    StringBuilder sb = new StringBuilder();
+    SocketChannelConfig conf = nettyChannel.config();
+    int sendBufferSize = conf.getSendBufferSize();
+    sb.append("sendBufferSize: ").append(sendBufferSize).append("; ");
+
+    logger.info("Configure: {}", sb.toString());
+
+    conf.setSendBufferSize(2048000);
+    conf.setAutoRead(false);
+
+    sb.setLength(0);
+    sendBufferSize = conf.getSendBufferSize();
+    sb.append("sendBufferSize: ").append(sendBufferSize).append("; ");
+
+    logger.info("Configure: {}", sb.toString());
+  }
 
   private void switchToNetty(java.nio.channels.SocketChannel javaChannel)
   {
@@ -371,9 +414,11 @@ public class Server implements ServerListener
 
       //nettyPipeline = nettyChannel.pipeline().addFirst(new SubscriberHandler());
       //nettyPipeline = nettyChannel.pipeline().addFirst(new SubscriberHandler()).addLast(new ByteArrayEncoder());  //.addFirst(new LoggingHandler(LogLevel.INFO))
-      nettyPipeline = nettyChannel.pipeline().addFirst(new SubscriberHandler()).addLast(new ByteArrayEncoder());
+      nettyPipeline = nettyChannel.pipeline().addFirst(new SubscriberHandler()).addLast(new ByteArrayEncoder()).addLast(new ExceptionHandler());
       io.netty.channel.EventLoop eventLoop = group.next();
+      configNettyChannel(nettyChannel);
       nettyChannel.unsafe().register(eventLoop, new DefaultChannelPromise(nettyChannel, eventLoop));
+
 
       //      if(!nettyChannel.isRegistered()) {
       //        logger.error("Channel not registered yet.");
@@ -683,7 +728,7 @@ public class Server implements ServerListener
 
     private AtomicLong sentBlocks = new AtomicLong(0);
     private long requestSendBlocks = 0;
-    private final long maxCacheBlocks = 1000;
+
 
     /**
      * The input data should already prefixed with length
@@ -702,19 +747,23 @@ public class Server implements ServerListener
       //Unpooled.wrappedBuffer seems add some head before the message
       //how to send byte[] using ByteBuf??
       //ChannelFuture writeFuture = nettyPipeline.writeAndFlush(Unpooled.wrappedBuffer(buffer, offset, length));
-      byte[] sendBuffer = buffer;
-      if(offset != 0 || length != buffer.length) {
-        sendBuffer = new byte[length];
-        System.arraycopy(buffer, offset, sendBuffer, 0, length);
-      }
+
+      //copy the data even if buffer is just fully occupied. As the buffer will be reused for write not data while sending
+      byte[] sendBuffer = new byte[length];
+      System.arraycopy(buffer, offset, sendBuffer, 0, length);
+
       //write(byte[]) must configure with ByteArrayEncoder
-      ChannelFuture writeFuture = nettyPipeline.writeAndFlush(sendBuffer);
+      //ChannelFuture writeFuture = nettyPipeline.writeAndFlush(sendBuffer);
+      ChannelFuture writeFuture = nettyPipeline.write(sendBuffer);
       writeFuture.addListener(new GenericFutureListener(){
         @Override
         public void operationComplete(Future future) throws Exception
         {
           if(!future.isSuccess()) {
             logger.warn("A package send failed due to: " + future.cause().getMessage());
+          }
+          if(future.isCancellable()) {
+            logger.warn("A package was cancelled due to: " + future.cause().getMessage());
           }
           if (future.isDone()) {
             sentBlocks.incrementAndGet();
@@ -739,40 +788,48 @@ public class Server implements ServerListener
       return lengthOfLength;
     }
 
+    private void sleepSlient(long millis, int nanos)
+    {
+      try {
+        //force to flush
+        Thread.sleep(millis, nanos);
+      } catch (InterruptedException e) {
+        logger.warn("sleep exception.", e);
+      }
+    }
+
     //probably should not enable asynSend, as need another mechanism to remove the data from queue if create a task to send data.
-    private final int DEFAULT_BUFFER_SIZE = 1024;
-    private int bufferSize = DEFAULT_BUFFER_SIZE;
+    private final int DEFAULT_SEND_BUFFER_SIZE = 102400;
+    private int bufferSize = DEFAULT_SEND_BUFFER_SIZE;
     private byte[] buffer = new byte[bufferSize];
     private int cacheFullCount = 0;
+    private final int DEFAULT_NUM_OF_SEND_BUFFER = 100;
+    private int maxCacheBlocks = DEFAULT_NUM_OF_SEND_BUFFER;
+
     public void writeQueueDataPackaged()
     {
-      int cachedLen = 0;
-      while (sendQueue.size() > 0) {
-        if(requestSendBlocks > sentBlocks.get() + maxCacheBlocks) {
-          if(cacheFullCount++ % 2000 == 0) {
-            logger.info("cache full. requestSendBlocks: {}, sentBlocks: {}; cached blocks: {}", requestSendBlocks, sentBlocks.get(), requestSendBlocks - sentBlocks.get());
-          }
-          try {
-            Thread.sleep(2);
-          } catch (InterruptedException e) {
-            logger.warn("sleep exception.", e);
-          }
-          return;
-        }
+      if(checkCacheFull()) {
+        return;
+      }
 
+      int cachedLen = 0;
+      boolean flushed = true;
+      while (sendQueue.size() > 0) {
         /**
          * The slices will be reused. But in netty case, we can't make sure the data has been sent.
          * So, even clean the buffer after sent can't solve the "Unexpected slice" issue. see WriteOnlyClient.send
          * So, clone the slice to solve the problem.
          */
-        final Slice oldSlice = sendQueue.peek();
+        final Slice oldSlice = sendQueue.poll();
         final Slice slice = new Slice(oldSlice.buffer, oldSlice.offset, oldSlice.length);
         oldSlice.buffer = null;
+        freeQueue.offer(oldSlice);
 
         if(cachedLen + slice.length + 4 >= bufferSize) {
           if(cachedLen > 0) {
             //send cached first
             sendData(buffer, 0, cachedLen);
+            flushed = false;
             cachedLen = 0;
           }
         }
@@ -786,12 +843,39 @@ public class Server implements ServerListener
         System.arraycopy(slice.buffer, slice.offset, buffer, cachedLen + lenOfLen, slice.length);
         cachedLen += slice.length + lenOfLen;
 
-        freeQueue.offer(sendQueue.poll());
+
+
+        //force to flush
+        if (!flushed) {
+          nettyPipeline.flush();
+          flushed = true;
+        }
+
+        if(checkCacheFull()) {
+          return;
+        }
+
       }
       if(cachedLen > 0) {
         sendData(buffer, 0, cachedLen);
-        cachedLen = 0;
+        nettyPipeline.flush();
       }
+    }
+
+    private boolean checkCacheFull()
+    {
+      long sentBlocks1 = sentBlocks.get();
+      if(requestSendBlocks >= sentBlocks1 + maxCacheBlocks) {
+        if(cacheFullCount++ % 2000 == 0) {
+          logger.info("cache full. requestSendBlocks: {}, sentBlocks: {}; cached blocks: {}; this: {}", requestSendBlocks, sentBlocks1, requestSendBlocks - sentBlocks1, System.identityHashCode(this));
+        }
+
+        //50 seems the best number for tuple of 100
+        sleepSlient(0, 50);
+        return true;
+      }
+
+      return false;
     }
   }
 
