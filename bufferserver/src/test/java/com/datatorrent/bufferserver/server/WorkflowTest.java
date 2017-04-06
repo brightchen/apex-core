@@ -37,7 +37,7 @@ public class WorkflowTest
     public void read(final int len)
     {
       ByteBuffer byteBuffer = buffer();
-      int size = byteBuffer.position()-lastBufferPosition;
+      int size = byteBuffer.position() - lastBufferPosition;
       byte[] bytes = new byte[size];
 
       System.arraycopy(byteBuffer.array(), lastBufferPosition, bytes, 0, size);
@@ -57,7 +57,7 @@ public class WorkflowTest
     @Override
     public void onMessage(byte[] newBuffer, int newOffset, int newSize)
     {
-      if(newBuffer != null && newSize > 0) {
+      if (newBuffer != null && newSize > 0) {
         logger.info("new bytes: {}", new Slice(newBuffer, newOffset, newSize));
         System.arraycopy(newBuffer, newOffset, buffer, size, newSize);
         size += newSize;
@@ -68,9 +68,9 @@ public class WorkflowTest
         tuple = Tuple.getTuple(buffer, 0, size);
       } catch (Exception e) {
         //wait for the leftover bytes
-        if(size > 20) {
+        if (size > 20) {
           //the bytes should be long enough, it should be invalid message
-          Assert.assertFalse("Probably invalid message: " +  new Slice(buffer, 0, size), true);
+          Assert.assertFalse("Probably invalid message: " + new Slice(buffer, 0, size), true);
         }
         return;
       }
@@ -122,11 +122,12 @@ public class WorkflowTest
     }
 
     //VarInt.getSize() incorrect? for example, input 64, return is 1
-    private int getSize(int i) {
-      if(i < 64) {
+    private int getSize(int i)
+    {
+      if (i < 64) {
         return 1;
       }
-      if(i > 8191) {
+      if (i > 8191) {
         return 3;
       }
       return 2;

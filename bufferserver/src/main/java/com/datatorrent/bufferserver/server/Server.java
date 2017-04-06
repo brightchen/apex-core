@@ -361,26 +361,13 @@ public class Server implements ServerListener
     }
   }
 
-  public static class ExceptionHandler extends ChannelDuplexHandler {
-
+  public static class ExceptionHandler extends ChannelDuplexHandler
+  {
     @Override
-    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
-        logger.info("Got exception: {}", cause.getMessage());
+    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause)
+    {
+      logger.info("Got exception: {}", cause.getMessage());
     }
-
-//    @Override
-//    public void write(ChannelHandlerContext ctx, Object msg, ChannelPromise promise) {
-//        ctx.write(msg, promise.addListener(new ChannelFutureListener() {
-//            @Override
-//            public void operationComplete(ChannelFuture future) {
-//                if (!future.isSuccess()) {
-//                    // Handle write exception here...
-//                }
-//            }
-//        }));
-//    }
-
-    // ... override more outbound methods to handle their exceptions as well
   }
 
   public ChannelPipeline nettyPipeline;
@@ -755,14 +742,15 @@ public class Server implements ServerListener
       //write(byte[]) must configure with ByteArrayEncoder
       //ChannelFuture writeFuture = nettyPipeline.writeAndFlush(sendBuffer);
       ChannelFuture writeFuture = nettyPipeline.write(sendBuffer);
-      writeFuture.addListener(new GenericFutureListener(){
+      writeFuture.addListener(new GenericFutureListener()
+      {
         @Override
         public void operationComplete(Future future) throws Exception
         {
-          if(!future.isSuccess()) {
+          if (!future.isSuccess()) {
             logger.warn("A package send failed due to: " + future.cause().getMessage());
           }
-          if(future.isCancellable()) {
+          if (future.isCancellable()) {
             logger.warn("A package was cancelled due to: " + future.cause().getMessage());
           }
           if (future.isDone()) {
@@ -808,7 +796,7 @@ public class Server implements ServerListener
 
     public void writeQueueDataPackaged()
     {
-      if(checkCacheFull()) {
+      if (checkCacheFull()) {
         return;
       }
 
@@ -816,17 +804,18 @@ public class Server implements ServerListener
       boolean flushed = true;
       while (sendQueue.size() > 0) {
         /**
-         * The slices will be reused. But in netty case, we can't make sure the data has been sent.
-         * So, even clean the buffer after sent can't solve the "Unexpected slice" issue. see WriteOnlyClient.send
-         * So, clone the slice to solve the problem.
+         * The slices will be reused. But in netty case, we can't make sure the
+         * data has been sent. So, even clean the buffer after sent can't solve
+         * the "Unexpected slice" issue. see WriteOnlyClient.send So, clone the
+         * slice to solve the problem.
          */
         final Slice oldSlice = sendQueue.poll();
         final Slice slice = new Slice(oldSlice.buffer, oldSlice.offset, oldSlice.length);
         oldSlice.buffer = null;
         freeQueue.offer(oldSlice);
 
-        if(cachedLen + slice.length + 4 >= bufferSize) {
-          if(cachedLen > 0) {
+        if (cachedLen + slice.length + 4 >= bufferSize) {
+          if (cachedLen > 0) {
             //send cached first
             sendData(buffer, 0, cachedLen);
             flushed = false;
@@ -834,7 +823,7 @@ public class Server implements ServerListener
           }
         }
 
-        if(slice.length + 4 >= bufferSize) {
+        if (slice.length + 4 >= bufferSize) {
           //the cached data must have been sent.
           buffer = new byte[slice.length + 4];
         }
@@ -843,20 +832,18 @@ public class Server implements ServerListener
         System.arraycopy(slice.buffer, slice.offset, buffer, cachedLen + lenOfLen, slice.length);
         cachedLen += slice.length + lenOfLen;
 
-
-
         //force to flush
         if (!flushed) {
           nettyPipeline.flush();
           flushed = true;
         }
 
-        if(checkCacheFull()) {
+        if (checkCacheFull()) {
           return;
         }
 
       }
-      if(cachedLen > 0) {
+      if (cachedLen > 0) {
         sendData(buffer, 0, cachedLen);
         nettyPipeline.flush();
       }
@@ -865,9 +852,10 @@ public class Server implements ServerListener
     private boolean checkCacheFull()
     {
       long sentBlocks1 = sentBlocks.get();
-      if(requestSendBlocks >= sentBlocks1 + maxCacheBlocks) {
-        if(cacheFullCount++ % 2000 == 0) {
-          logger.info("cache full. requestSendBlocks: {}, sentBlocks: {}; cached blocks: {}; this: {}", requestSendBlocks, sentBlocks1, requestSendBlocks - sentBlocks1, System.identityHashCode(this));
+      if (requestSendBlocks >= sentBlocks1 + maxCacheBlocks) {
+        if (cacheFullCount++ % 2000 == 0) {
+          logger.info("cache full. requestSendBlocks: {}, sentBlocks: {}; cached blocks: {}; this: {}",
+              requestSendBlocks, sentBlocks1, requestSendBlocks - sentBlocks1, System.identityHashCode(this));
         }
 
         //50 seems the best number for tuple of 100
