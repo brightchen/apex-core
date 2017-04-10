@@ -48,10 +48,10 @@ import org.apache.commons.collections.buffer.CircularFifoBuffer;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelDuplexHandler;
+import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelPipeline;
-import io.netty.channel.ChannelPromise;
 import io.netty.channel.DefaultChannelPromise;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
@@ -774,9 +774,14 @@ public class Server implements ServerListener
       //how to send byte[] using ByteBuf??
 
       //ChannelFuture writeFuture = sendDataAsSlice(buffer, offset, length);
-      ChannelPromise promise = nettyPipeline.newPromise();
-      promise.addListener(new SubscriberFutureListener(buffer, freeBuffers, sentBlocks));
-      nettyPipeline.write(new Slice(buffer, offset, length), promise);
+
+      //nettyPipeline.newPromise() cause issue: NoSuchMethodError: io.netty.channel.ChannelPipeline.newPromise()Lio/netty/channel/ChannelPromise;
+//      ChannelPromise promise = nettyPipeline.newPromise();
+//      promise.addListener(new SubscriberFutureListener(buffer, freeBuffers, sentBlocks));
+//      nettyPipeline.write(new Slice(buffer, offset, length), promise);
+      ChannelFuture future = nettyPipeline.write(new Slice(buffer, offset, length));
+      future.addListener(new SubscriberFutureListener(buffer, freeBuffers, sentBlocks));
+
       ++writeCount;
 
       //writeFuture.addListener(new SubscriberFutureListener(buffer, freeBuffers, sentBlocks));
