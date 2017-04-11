@@ -373,9 +373,7 @@ public class Server implements ServerListener
     @Override
     protected void encode(ChannelHandlerContext ctx, Slice slice, List<Object> out) throws Exception
     {
-      //logger.info("encode slice: {}", slice);
       out.add(Unpooled.wrappedBuffer(slice.buffer, slice.offset, slice.length));
-      //Thread.sleep(10);
     }
   }
 
@@ -416,22 +414,14 @@ public class Server implements ServerListener
       Bootstrap b = new Bootstrap();
       b.group(group);
 
-      //nettyPipeline = nettyChannel.pipeline().addFirst(new SubscriberHandler());
-      //nettyPipeline = nettyChannel.pipeline().addFirst(new SubscriberHandler()).addLast(new ByteArrayEncoder());  //.addFirst(new LoggingHandler(LogLevel.INFO))
       nettyPipeline = nettyChannel.pipeline().addFirst(new SubscriberHandler()).addLast(new SliceEncoder()).addLast(new ExceptionHandler());
       io.netty.channel.EventLoop eventLoop = group.next();
       configNettyChannel(nettyChannel);
       nettyChannel.unsafe().register(eventLoop, new DefaultChannelPromise(nettyChannel, eventLoop));
 
-      //      if(!nettyChannel.isRegistered()) {
-      //        logger.error("Channel not registered yet.");
-      //      }
-      //nettyChannel.closeFuture().sync();
       logger.info("switched to netty. javaChannel: {}", javaChannel);
     } catch (Exception e) {
       throw new RuntimeException(e);
-    } finally {
-      //group.shutdownGracefully();
     }
   }
 
@@ -718,10 +708,6 @@ public class Server implements ServerListener
       return getClass().getSimpleName() + '@' + Integer.toHexString(hashCode()) + "{ln=" + ln + "}";
     }
 
-    //private List<ChannelFuture> writeFutures = Lists.newArrayList();
-    //private List<Pair<ChannelFuture, Slice>> futureSlicePairs = Lists.newArrayList();
-    private int writeCount = 0;
-
     /**
      * this method is called by handle the selection key.
      * The netty implementation should stand out of the netty eventloop.
@@ -734,16 +720,11 @@ public class Server implements ServerListener
 
     private AtomicLong sentBlocks = new AtomicLong(0);
     private long requestSendBlocks = 0;
-    private final long maxCacheBlocks = 1000;
 
-    private int averageLen = 0;
     private int maxLen = 0;
     private int minLen = Integer.MAX_VALUE;
     private long totalLen = 0;
     private int totalcount = 0;
-    private int sentBufferNum = 0;
-    private long releasedBlocks = 0;
-    private byte[] lastSendBuffer = null;
     /**
      * The input data should already prefixed with length
      * @param buffer
@@ -753,12 +734,6 @@ public class Server implements ServerListener
     @SuppressWarnings({ "unchecked", "rawtypes" })
     private void sendData(byte[] buffer, int offset, int length)
     {
-//      logger.info("sending bytes: {}", System.identityHashCode(buffer));
-//      if(lastSendBuffer == buffer) {
-//        throw new RuntimeException("current buffer should not sames as last send buffer.");
-//      }
-//      lastSendBuffer = buffer;
-
       totalLen += length;
       maxLen = maxLen < length ? length : maxLen;
       minLen = minLen > length ? length : minLen;
@@ -766,25 +741,10 @@ public class Server implements ServerListener
         logger.info("totalCount: {}; minLen: {}; maxLen: {}; average: {}", totalcount, minLen, maxLen,
             totalLen / totalcount);
       }
-//      logger.info("sending: {}", new Slice(buffer, offset, length));
       ++requestSendBlocks;
 
-      //send byte[] as object and Unpooled.wrappedBuffer are different.
-      //Unpooled.wrappedBuffer seems add some head before the message
-      //how to send byte[] using ByteBuf??
-
-      //ChannelFuture writeFuture = sendDataAsSlice(buffer, offset, length);
-
-      //nettyPipeline.newPromise() cause issue: NoSuchMethodError: io.netty.channel.ChannelPipeline.newPromise()Lio/netty/channel/ChannelPromise;
-//      ChannelPromise promise = nettyPipeline.newPromise();
-//      promise.addListener(new SubscriberFutureListener(buffer, freeBuffers, sentBlocks));
-//      nettyPipeline.write(new Slice(buffer, offset, length), promise);
       ChannelFuture future = nettyPipeline.write(new Slice(buffer, offset, length));
       future.addListener(new SubscriberFutureListener(buffer, freeBuffers, sentBlocks));
-
-      ++writeCount;
-
-      //writeFuture.addListener(new SubscriberFutureListener(buffer, freeBuffers, sentBlocks));
     }
 
     public int writeLength(byte[] buffer, int offset, int length)
@@ -798,26 +758,16 @@ public class Server implements ServerListener
       return lengthOfLength;
     }
 
-    private void sleepSlient(long millis, int nanos)
-    {
-      try {
-        //force to flush
-        Thread.sleep(millis, nanos);
-      } catch (InterruptedException e) {
-        logger.warn("sleep exception.", e);
-      }
-    }
-
     //The buffer can be reused only after the data has been sent.
     private final int DEFAULT_BUFFER_CAPACITY = 204800;
     private int bufferCapacity = DEFAULT_BUFFER_CAPACITY;
-    //private byte[] buffer = new byte[bufferCapacity];
-    //private byte[][] buffers;
+
     private final int DEFAULT_MAX_BUFFER_NUM = 100;
     private int maxBufferNum = DEFAULT_MAX_BUFFER_NUM;
     private Buffer freeBuffers;
 
     private int cacheFullCount = 0;
+
     @SuppressWarnings("unchecked")
     public void sendQueueDataPackaged()
     {
@@ -882,11 +832,8 @@ public class Server implements ServerListener
       if (!flushed) {
         nettyPipeline.flush();
       }
-
-      //checkConsistence("sendQueueDataPackaged finished.");
     }
 
-    private byte[] lastFreeBuffer = null;
     private byte[] getFreeBuffer()
     {
       byte[] buffer = null;
@@ -896,41 +843,18 @@ public class Server implements ServerListener
           logger.info("cache full. requestSendBlocks: {}, sentBlocks: {}; cached blocks: {}; freeBuffers size: {}; this: {}",
               requestSendBlocks, sentBlocks1, requestSendBlocks - sentBlocks1, freeBuffers.size(), System.identityHashCode(this));
         }
-
-        //checkConsistence("getFreeBuffer");
-        //50 seems the best number for tuple of 100
-//        sleepSlient(0, 50);
       } else {
         //the freeBuffers should not empty as the remove items only in this thread. another thread add item to the freeBuffers.
         buffer = (byte[])freeBuffers.remove();
       }
-
-//      if(buffer != null && buffer == lastFreeBuffer) {
-//        logger.error("lastFreeBuffer: {} same as new allocated buffer: {}. ", System.identityHashCode(lastFreeBuffer), System.identityHashCode(buffer));
-//        this.sleepSlient(1000, 0);
-//        throw new RuntimeException("lastFreeBuffer same as new allocated buffer.");
-//      }
-//      lastFreeBuffer = buffer;
-//
-//      logger.info("allocated bytes: {}", System.identityHashCode(buffer));
       return buffer;
     }
-
-//    private void checkConsistence(String identity)
-//    {
-//      long sentBlocks1 = sentBlocks.get();
-//      long cachedBlock = requestSendBlocks - sentBlocks1;
-//      int freeBufferSize = freeBuffers.size();
-//      if (Math.abs(cachedBlock - maxBufferNum + freeBufferSize) > 1) {
-//        logger.error("Inconsist:{}: cachedBlocks: {}; used blocks: {}", identity, cachedBlock,
-//            maxBufferNum - freeBufferSize);
-//      }
-//    }
 
     /**
      * create buffers with new capacity. old buffers will be garbage collected
      * @param newCapacity
      */
+    @SuppressWarnings("unchecked")
     private void bufferSizeChanged(int newCapacity)
     {
       bufferCapacity = newCapacity;
@@ -950,9 +874,9 @@ public class Server implements ServerListener
   }
 
 
+  @SuppressWarnings("rawtypes")
   private static class SubscriberFutureListener implements GenericFutureListener
   {
-    private static long releasedBlocks = 0;
     private final byte[] buffer;
     private final Collection<byte[]> freeBufferQueue;
     private final AtomicLong sentBlocks;
@@ -980,17 +904,10 @@ public class Server implements ServerListener
           throw new RuntimeException("something wrong.", e);
         }
         sentBlocks.incrementAndGet();
-
-        if (++releasedBlocks % 1020 == 0) {
-          int queueSize = freeBufferQueue.size();
-//          logger.info("released buffers: {}; total free buffers: {}; this buffer id: {}", releasedBlocks,
-//              queueSize, System.identityHashCode(buffer));
-        }
       } else {
         logger.error("!!!Unexpected result of future: {}", future);
       }
     }
-
   }
 
   /**
