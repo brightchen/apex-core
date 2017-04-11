@@ -809,7 +809,7 @@ public class Server implements ServerListener
     }
 
     //The buffer can be reused only after the data has been sent.
-    private final int DEFAULT_BUFFER_CAPACITY = 102400;
+    private final int DEFAULT_BUFFER_CAPACITY = 204800;
     private int bufferCapacity = DEFAULT_BUFFER_CAPACITY;
     //private byte[] buffer = new byte[bufferCapacity];
     //private byte[][] buffers;
@@ -883,7 +883,7 @@ public class Server implements ServerListener
         nettyPipeline.flush();
       }
 
-      checkConsistence("sendQueueDataPackaged finished.");
+      //checkConsistence("sendQueueDataPackaged finished.");
     }
 
     private byte[] lastFreeBuffer = null;
@@ -897,9 +897,9 @@ public class Server implements ServerListener
               requestSendBlocks, sentBlocks1, requestSendBlocks - sentBlocks1, freeBuffers.size(), System.identityHashCode(this));
         }
 
-        checkConsistence("getFreeBuffer");
+        //checkConsistence("getFreeBuffer");
         //50 seems the best number for tuple of 100
-        sleepSlient(0, 50);
+//        sleepSlient(0, 50);
       } else {
         //the freeBuffers should not empty as the remove items only in this thread. another thread add item to the freeBuffers.
         buffer = (byte[])freeBuffers.remove();
@@ -916,16 +916,16 @@ public class Server implements ServerListener
       return buffer;
     }
 
-    private void checkConsistence(String identity)
-    {
-      long sentBlocks1 = sentBlocks.get();
-      long cachedBlock = requestSendBlocks - sentBlocks1;
-      int freeBufferSize = freeBuffers.size();
-      if (Math.abs(cachedBlock - maxBufferNum + freeBufferSize) > 1) {
-        logger.error("Inconsist:{}: cachedBlocks: {}; used blocks: {}", identity, cachedBlock,
-            maxBufferNum - freeBufferSize);
-      }
-    }
+//    private void checkConsistence(String identity)
+//    {
+//      long sentBlocks1 = sentBlocks.get();
+//      long cachedBlock = requestSendBlocks - sentBlocks1;
+//      int freeBufferSize = freeBuffers.size();
+//      if (Math.abs(cachedBlock - maxBufferNum + freeBufferSize) > 1) {
+//        logger.error("Inconsist:{}: cachedBlocks: {}; used blocks: {}", identity, cachedBlock,
+//            maxBufferNum - freeBufferSize);
+//      }
+//    }
 
     /**
      * create buffers with new capacity. old buffers will be garbage collected
