@@ -834,6 +834,16 @@ public class Server implements ServerListener
       }
     }
 
+    private void sleepSlient(long millis, int nanos)
+    {
+      try {
+        //force to flush
+        Thread.sleep(millis, nanos);
+      } catch (InterruptedException e) {
+        logger.warn("sleep exception.", e);
+      }
+    }
+
     private byte[] getFreeBuffer()
     {
       byte[] buffer = null;
