@@ -76,6 +76,7 @@ import com.datatorrent.netlet.AbstractLengthPrependerClient;
 import com.datatorrent.netlet.DefaultEventLoop;
 import com.datatorrent.netlet.EventLoop;
 import com.datatorrent.netlet.Listener.ServerListener;
+import com.datatorrent.netlet.WriteOnlyClient;
 import com.datatorrent.netlet.WriteOnlyLengthPrependerClient;
 import com.datatorrent.netlet.util.Slice;
 import com.datatorrent.netlet.util.VarInt;
@@ -275,7 +276,7 @@ public class Server implements ServerListener
   }
 
 
-  private volatile Subscriber subscriber;
+  private volatile NettySubscriber subscriber;
 
   /**
    *
@@ -328,7 +329,7 @@ public class Server implements ServerListener
 
           switchToNetty((java.nio.channels.SocketChannel)key.channel());
 
-          subscriber = new Subscriber(ln, request.getBufferSize());
+          subscriber = new NettySubscriber(ln, request.getBufferSize());
           eventloop.submit(new Runnable()
           {
             @Override
@@ -428,7 +429,7 @@ public class Server implements ServerListener
   private void handleSubscriberTeardown(final SelectionKey key)
   {
     try {
-      final Subscriber subscriber = (Subscriber)key.attachment();
+      final NettySubscriber subscriber = (NettySubscriber)key.attachment();
       if (subscriber != null) {
         serverHelperExecutor.submit(new Runnable()
         {
@@ -660,6 +661,240 @@ public class Server implements ServerListener
 
   }
 
+  private class NettySubscriber extends WriteOnlyClient
+  {
+    private LogicalNode ln;
+    //protected final ByteBuffer writeBuffer;
+
+    NettySubscriber(LogicalNode ln, int bufferSize)
+    {
+      //writeBuffer = ByteBuffer.allocateDirect(1024 * 1024);
+      //super(1024 * 1024, bufferSize == 0 ? 256 * 1024 : bufferSize);
+      this.ln = ln;
+      ln.addConnection(this);
+    }
+
+    @Override
+    public void registered(SelectionKey key)
+    {
+      this.key = key;
+    }
+
+    @Override
+    public void connected()
+    {
+      super.connected();
+
+      bufferSizeChanged(bufferCapacity);
+
+      serverHelperExecutor.submit(new Runnable()
+      {
+        @Override
+        public void run()
+        {
+          final DataList dl = publisherBuffers.get(ln.getUpstream());
+          if (dl != null) {
+            ln.catchUp();
+            dl.addDataListener(ln);
+          } else {
+            logger.error("Disconnecting {} with no matching data list.", this);
+            ln.boot();
+          }
+        }
+      });
+    }
+
+    @Override
+    public void unregistered(final SelectionKey key)
+    {
+      handleSubscriberTeardown(key);
+      super.unregistered(key);
+    }
+
+    @Override
+    public String toString()
+    {
+      return getClass().getSimpleName() + '@' + Integer.toHexString(hashCode()) + "{ln=" + ln + "}";
+    }
+
+    /**
+     * Override send.
+     * Instead cache the data
+     */
+    @Override
+    public boolean send(byte[] array, int offset, int len)
+    {
+      packageAndSend(array, offset, len);
+      return true;
+    }
+
+    @Override
+    public boolean send(Slice f)
+    {
+      throw new UnsupportedOperationException("Not supported.");
+    }
+
+    //do nothing
+    @Override
+    public void write() throws IOException
+    {
+      return;
+    }
+
+    private AtomicLong sentBlocks = new AtomicLong(0);
+    private long requestSendBlocks = 0;
+
+    private int maxLen = 0;
+    private int minLen = Integer.MAX_VALUE;
+    private long totalLen = 0;
+    private int totalcount = 0;
+    /**
+     * The input data should already prefixed with length
+     * @param buffer
+     * @param offset
+     * @param length
+     */
+    @SuppressWarnings({ "unchecked", "rawtypes" })
+    private void sendData(byte[] buffer, int offset, int length)
+    {
+      totalLen += length;
+      maxLen = maxLen < length ? length : maxLen;
+      minLen = minLen > length ? length : minLen;
+      if (++totalcount % 100000 == 0) {
+        logger.info("totalCount: {}; minLen: {}; maxLen: {}; average: {}", totalcount, minLen, maxLen,
+            totalLen / totalcount);
+      }
+      ++requestSendBlocks;
+
+      ChannelFuture future = nettyPipeline.write(new Slice(buffer, offset, length));
+      future.addListener(new SubscriberFutureListener(buffer, freeBuffers, sentBlocks));
+    }
+
+    public int writeLength(byte[] buffer, int offset, int length)
+    {
+      int lengthOfLength = 0;
+      while ((length & ~0x7F) != 0) {
+        buffer[offset + lengthOfLength++] = (byte)((length & 0x7F) | 0x80);
+        length >>>= 7;
+      }
+      buffer[offset + lengthOfLength++] = (byte)length;
+      return lengthOfLength;
+    }
+
+    //The buffer can be reused only after the data has been sent.
+    private final int DEFAULT_BUFFER_CAPACITY = 10240;
+    private int bufferCapacity = DEFAULT_BUFFER_CAPACITY;
+
+    private final int DEFAULT_MAX_BUFFER_NUM = 5000;
+    private int maxBufferNum = DEFAULT_MAX_BUFFER_NUM;
+    private Buffer freeBuffers;
+
+    private int cacheFullCount = 0;
+
+    //current package buffer.
+    private byte[] packageBuffer;
+    private int cachedLen = 0;
+    private boolean flushed = true;
+
+    @SuppressWarnings("unchecked")
+    public void packageAndSend(byte[] data, int offset, int length)
+    {
+      if (length + 4 >= bufferCapacity) {
+        //the cached data must have been sent.
+        logger.error("The slice is too large");
+        throw new UnsupportedOperationException("The slice is too large");
+      }
+
+      if (packageBuffer == null) {
+        //wait until have free buffer
+        while ((packageBuffer = getFreeBuffer()) == null) {
+          ;
+        }
+      }
+
+      if (cachedLen + length + 4 >= bufferCapacity) {
+        if (cachedLen > 0) {
+          //send cached first
+          sendData(packageBuffer, 0, cachedLen);
+          nettyPipeline.flush();
+          flushed = true;
+          cachedLen = 0;
+          packageBuffer = null;
+
+          //new buffer
+          while((packageBuffer = getFreeBuffer()) == null) {
+            ;
+          }
+        }
+      }
+
+      //concatenate this slice
+      int lenOfLen = writeLength(packageBuffer, cachedLen, length);
+      System.arraycopy(data, offset, packageBuffer, cachedLen + lenOfLen, length);
+      cachedLen += length + lenOfLen;
+
+//      if (cachedLen > 0) {
+//        sendData(packageBuffer, 0, cachedLen);
+//        flushed = false;
+//      }
+//
+//      //force to flush
+//      if (!flushed) {
+//        nettyPipeline.flush();
+//      }
+    }
+
+    private void sleepSlient(long millis, int nanos)
+    {
+      try {
+        //force to flush
+        Thread.sleep(millis, nanos);
+      } catch (InterruptedException e) {
+        logger.warn("sleep exception.", e);
+      }
+    }
+
+    private byte[] getFreeBuffer()
+    {
+      byte[] buffer = null;
+      if (freeBuffers.size() == 0) {
+        if (cacheFullCount++ % 2000 == 0) {
+          long sentBlocks1 = sentBlocks.get();
+          logger.info("cache full. requestSendBlocks: {}, sentBlocks: {}; cached blocks: {}; freeBuffers size: {}; this: {}",
+              requestSendBlocks, sentBlocks1, requestSendBlocks - sentBlocks1, freeBuffers.size(), System.identityHashCode(this));
+        }
+        this.sleepSlient(0, 50);
+      } else {
+        //the freeBuffers should not empty as the remove items only in this thread. another thread add item to the freeBuffers.
+        buffer = (byte[])freeBuffers.remove();
+      }
+      return buffer;
+    }
+
+    /**
+     * create buffers with new capacity. old buffers will be garbage collected
+     * @param newCapacity
+     */
+    @SuppressWarnings("unchecked")
+    private void bufferSizeChanged(int newCapacity)
+    {
+      bufferCapacity = newCapacity;
+
+      if (freeBuffers == null) {
+        freeBuffers = BufferUtils.synchronizedBuffer(new CircularFifoBuffer(maxBufferNum));
+      } else {
+        freeBuffers.clear();
+      }
+      //initialize the free buffer
+      for (int i = 0; i < maxBufferNum; ++i) {
+        freeBuffers.add(new byte[bufferCapacity]);
+      }
+      logger.info("freeBuffers size: {}; maxBufferNum: {}; bufferCapacity: {}", freeBuffers.size(), maxBufferNum,
+          bufferCapacity);
+    }
+  }
+
+
   private class Subscriber extends WriteOnlyLengthPrependerClient
   {
     private LogicalNode ln;
@@ -709,8 +944,8 @@ public class Server implements ServerListener
     }
 
     /**
-     * this method is called by handle the selection key.
-     * The netty implementation should stand out of the netty eventloop.
+     * this method is called by handle the selection key. The netty
+     * implementation should stand out of the netty eventloop.
      */
     @Override
     public void write() throws IOException
@@ -725,8 +960,10 @@ public class Server implements ServerListener
     private int minLen = Integer.MAX_VALUE;
     private long totalLen = 0;
     private int totalcount = 0;
+
     /**
      * The input data should already prefixed with length
+     *
      * @param buffer
      * @param offset
      * @param length
@@ -850,8 +1087,10 @@ public class Server implements ServerListener
       if (freeBuffers.size() == 0) {
         if (cacheFullCount++ % 2000 == 0) {
           long sentBlocks1 = sentBlocks.get();
-          logger.info("cache full. requestSendBlocks: {}, sentBlocks: {}; cached blocks: {}; freeBuffers size: {}; this: {}",
-              requestSendBlocks, sentBlocks1, requestSendBlocks - sentBlocks1, freeBuffers.size(), System.identityHashCode(this));
+          logger.info(
+              "cache full. requestSendBlocks: {}, sentBlocks: {}; cached blocks: {}; freeBuffers size: {}; this: {}",
+              requestSendBlocks, sentBlocks1, requestSendBlocks - sentBlocks1, freeBuffers.size(),
+              System.identityHashCode(this));
         }
       } else {
         //the freeBuffers should not empty as the remove items only in this thread. another thread add item to the freeBuffers.
@@ -862,6 +1101,7 @@ public class Server implements ServerListener
 
     /**
      * create buffers with new capacity. old buffers will be garbage collected
+     *
      * @param newCapacity
      */
     @SuppressWarnings("unchecked")
@@ -882,7 +1122,6 @@ public class Server implements ServerListener
           bufferCapacity);
     }
   }
-
 
   @SuppressWarnings("rawtypes")
   private static class SubscriberFutureListener implements GenericFutureListener
