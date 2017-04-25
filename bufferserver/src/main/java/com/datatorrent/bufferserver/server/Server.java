@@ -822,7 +822,7 @@ public class Server implements ServerListener
           packageBuffer = null;
 
           //new buffer
-          while((packageBuffer = getFreeBuffer()) == null) {
+          while ((packageBuffer = getFreeBuffer()) == null) {
             ;
           }
         }
