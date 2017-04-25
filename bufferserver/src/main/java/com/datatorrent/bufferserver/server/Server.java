@@ -760,7 +760,7 @@ public class Server implements ServerListener
       totalLen += length;
       maxLen = maxLen < length ? length : maxLen;
       minLen = minLen > length ? length : minLen;
-      if (++totalcount % 100000 == 0) {
+      if (++totalcount % 1000000 == 0) {
         logger.info("totalCount: {}; minLen: {}; maxLen: {}; average: {}", totalcount, minLen, maxLen,
             totalLen / totalcount);
       }
